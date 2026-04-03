@@ -4,6 +4,7 @@
 # =====================================================
 
 import subprocess
+import shutil
 import threading
 import queue
 import time
@@ -11,6 +12,7 @@ import sys
 import re
 import tkinter as tk
 from tkinter import ttk, messagebox
+from pathlib import Path
 
 import numpy as np
 import whisper
@@ -37,9 +39,182 @@ CHUNK_BYTES = CHUNK_SAMPLES * BYTES_PER_SAMPLE          # 청크당 바이트 �
 MIN_TEXT_LENGTH = 2          # 최소 텍스트 길이 (너무 짧은 자막 제거)
 DUPLICATE_TIME_WINDOW = 1.5  # 같은 텍스트 반복 감지 시간 범위 (초)
 SUBTITLE_HOLD_SECONDS = 1.2  # 자막 유지 시간 (짧은 공백 깜빡임 완화)
-LATE_ACCEPT_SECONDS = 3.0    # 늦게 도착한 자막 허용 범위 (지연 보정)
+LATE_ACCEPT_SECONDS = 10.0   # 늦게 도착한 자막 허용 범위 (지연 보정)
 MAX_BUFFER_SECONDS = 120.0   # 메모리 보호를 위한 자막 버퍼 보관 시간
 SYNC_OFFSET_SECONDS = 0.25   # 자막이 너무 빠를 때 보정하는 표시 지연
+
+
+def _first_http_url(text: str) -> str:
+    match = re.search(r"https?://\S+", text)
+    return match.group(0).strip() if match else ""
+
+
+def _extract_title_with_python_api(youtube_url: str) -> str:
+    try:
+        import yt_dlp
+    except Exception:
+        return ""
+
+    option_sets = [
+        {
+            "quiet": True,
+            "no_warnings": True,
+            "skip_download": True,
+            "noplaylist": True,
+        },
+        {
+            "quiet": True,
+            "no_warnings": True,
+            "skip_download": True,
+            "noplaylist": True,
+            "format": "ba/b",
+        },
+    ]
+
+    for opts in option_sets:
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(youtube_url, download=False)
+        except Exception:
+            continue
+
+        if isinstance(info, dict):
+            title = info.get("title")
+            if isinstance(title, str) and title.strip():
+                return title.strip()
+
+    return ""
+
+
+def _first_stream_url(text: str) -> str:
+    for raw in re.findall(r"https?://\S+", text):
+        url = raw.strip().rstrip("\"').,;]")
+        low = url.lower()
+
+        if "youtube.com" in low and ("watch?v=" in low or "youtu.be/" in low):
+            continue
+        if "github.com/yt-dlp/yt-dlp/wiki" in low:
+            continue
+
+        is_media_url = (
+            "googlevideo.com" in low
+            or "videoplayback" in low
+            or ".m3u8" in low
+            or ".mpd" in low
+            or "manifest" in low
+            or "mime=" in low
+            or "source=youtube" in low
+        )
+        if is_media_url:
+            return url
+
+    return ""
+
+
+def _extract_stream_url_with_python_api(youtube_url: str) -> str:
+    try:
+        import yt_dlp
+    except Exception:
+        return ""
+
+    option_sets = [
+        {
+            "quiet": True,
+            "no_warnings": True,
+            "skip_download": True,
+            "noplaylist": True,
+            "format": "ba/b",
+        },
+        {
+            "quiet": True,
+            "no_warnings": True,
+            "skip_download": True,
+            "noplaylist": True,
+            "format": "b",
+        },
+    ]
+
+    for opts in option_sets:
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(youtube_url, download=False)
+        except Exception:
+            continue
+
+        if isinstance(info, dict) and info.get("entries"):
+            info = next((entry for entry in info.get("entries", []) if entry), info)
+
+        if not isinstance(info, dict):
+            continue
+
+        candidates = []
+        for key in ("url", "manifest_url", "hls_url", "dash_url"):
+            value = info.get(key)
+            if isinstance(value, str) and value.startswith("http"):
+                candidates.append(value)
+
+        for fmt in info.get("requested_formats", []) or []:
+            value = fmt.get("url") if isinstance(fmt, dict) else None
+            if isinstance(value, str) and value.startswith("http"):
+                candidates.append(value)
+
+        for candidate in candidates:
+            stream_url = _first_stream_url(candidate)
+            if stream_url:
+                return stream_url
+
+    return ""
+
+
+def _resolve_ffmpeg_executable() -> str:
+    candidates = [
+        shutil.which("ffmpeg"),
+        str(Path.home() / r"AppData\Local\Microsoft\WindowsApps\ffmpeg.exe"),
+        str(Path.home() / r"AppData\Local\Microsoft\WinGet\Links\ffmpeg.exe"),
+        r"C:\Program Files\ffmpeg\bin\ffmpeg.exe",
+        r"C:\ffmpeg\bin\ffmpeg.exe",
+    ]
+
+    for candidate in candidates:
+        if candidate and Path(candidate).exists():
+            return candidate
+
+    raise RuntimeError(
+        "ffmpeg 실행 파일을 찾을 수 없습니다.\n"
+        "PowerShell/VS Code 터미널을 재시작한 뒤 다시 시도하거나, ffmpeg.exe 경로를 PATH에 추가하세요."
+    )
+
+
+def _yt_dlp_runtime_flags() -> list[str]:
+    node_path = shutil.which("node")
+    if not node_path:
+        return []
+    return ["--js-runtimes", f"node:{node_path}"]
+
+
+def _extract_youtube_title(youtube_url: str) -> str:
+    api_title = _extract_title_with_python_api(youtube_url)
+    if api_title:
+        return api_title
+
+    runtime_flags = _yt_dlp_runtime_flags()
+    strategies = [
+        [sys.executable, "-m", "yt_dlp", *runtime_flags, "--no-playlist", "--print", "title", youtube_url],
+        [sys.executable, "-m", "yt_dlp", *runtime_flags, "--no-playlist", "--skip-download", "--print", "title", youtube_url],
+        [sys.executable, "-m", "yt_dlp", "--no-playlist", "--print", "title", youtube_url],
+        [sys.executable, "-m", "yt_dlp", "--no-playlist", "--skip-download", "--print", "title", youtube_url],
+    ]
+
+    for cmd in strategies:
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=30)
+            title = result.stdout.strip().splitlines()[-1].strip() if result.stdout.strip() else ""
+            if title:
+                return title
+        except Exception:
+            pass
+
+    return ""
 
 
 # =====================================================
@@ -71,19 +246,20 @@ class LiveSubtitleApp:
         self.root = root
         self.root.title("실시간 자막 시험용")
         self.root.geometry("1000x260")
-
         # Whisper 모델 저장소 (비동기로 로딩됨)
         self.model = None
         
         # 워커 스레드 (유튜브 스트림 처리용)
         self.worker_thread = None
-        
-        # 종료 신호 플래그 (메인 스레드에서 워커 스레드 중단 명령)
-        self.stop_flag = threading.Event()
 
+        # 종료 신호 플래그 (워커 스레드 중단용)
+        self.stop_flag = threading.Event()
+        
         # 스레드 간 통신용 큐
         self.subtitle_queue = queue.Queue()    # 생성된 자막들을 저장
         self.status_queue = queue.Queue()      # 상태 메시지 전달
+        self.last_stream_error = ""
+        self.transcription_prompt = ""
 
         # 재생 시간 추적 (ffmpeg 시작 시간 기준)
         self.stream_start_monotonic = None
@@ -129,6 +305,9 @@ class LiveSubtitleApp:
         self.url_var = tk.StringVar()
         self.url_entry = ttk.Entry(top, textvariable=self.url_var, width=120)
         self.url_entry.pack(fill="x", pady=(4, 8))
+
+        self.video_title_var = tk.StringVar(value="영상 제목: 아직 없음")
+        ttk.Label(top, textvariable=self.video_title_var).pack(anchor="w", pady=(0, 6))
 
         # 제어 버튼 프레임
         controls = ttk.Frame(top)
@@ -198,6 +377,19 @@ class LiveSubtitleApp:
             messagebox.showwarning("경고", "유튜브 URL을 입력하세요.")
             return
 
+        self.subtitle_var.set("영상 정보를 확인 중...")
+        self.time_var.set("00:00.00 ~ 00:00.00")
+
+        title = _extract_youtube_title(url)
+        if title:
+            self.video_title_var.set(f"영상 제목: {title}")
+            self.status_var.set("영상 인식 완료, 오디오 추출을 시작합니다.")
+            self.transcription_prompt = title.strip()
+        else:
+            self.video_title_var.set("영상 제목: 가져오지 못함")
+            self.status_var.set("URL은 받았지만 제목 인식에 실패했습니다. 오디오 추출을 계속 시도합니다.")
+            self.transcription_prompt = ""
+
         # 중복 실행 방지
         if self.worker_thread and self.worker_thread.is_alive():
             messagebox.showinfo("안내", "이미 실행 중입니다.")
@@ -215,6 +407,7 @@ class LiveSubtitleApp:
         self.is_paused = False
         self.pause_started_monotonic = None
         self.accumulated_pause_seconds = 0.0
+        self.last_stream_error = ""
         self.subtitle_var.set("자막 수집 시작...")      # UI 메시지 변경
         self.time_var.set("00:00.00 ~ 00:00.00")       # 시간 표시 초기화
         self.status_var.set("스트림 준비 중...")        # 상태 메시지 변경
@@ -266,8 +459,8 @@ class LiveSubtitleApp:
         - YouTube 직접 오디오 URL 추출
         - 오디오 스트림 및 전사(음성-텍스트 변환) 실행
         """
+        stream_failed = False
         try:
-            # yt-dlp를 사용하여 YouTube 영상에서 오디오 URL 추출
             direct_url = self._get_direct_audio_url(youtube_url)
             self.status_queue.put("오디오 스트림 URL 확보 완료")
             
@@ -275,63 +468,91 @@ class LiveSubtitleApp:
             self._stream_and_transcribe(direct_url)
         except Exception as e:
             # 오류 발생 시 메시지 전달
+            stream_failed = True
+            self.last_stream_error = str(e)
             self.status_queue.put(f"오류: {e}")
         finally:
             # 작업 종료 메시지 전달 및 UI 복원
-            self.status_queue.put("작업 종료")
+            if self.stop_flag.is_set() and not stream_failed:
+                self.status_queue.put("작업 종료 (사용자 중지)")
+            elif not stream_failed:
+                self.status_queue.put("작업 종료")
             self.root.after(0, lambda: self.start_btn.configure(state="normal"))
             self.root.after(0, lambda: self.stop_btn.configure(state="disabled"))
             self.root.after(0, lambda: self.pause_btn.configure(state="disabled", text="일시정지"))
 
     def _get_direct_audio_url(self, youtube_url: str) -> str:
         """
-        YouTube 영상에서 직접 접근 가능한 오디오 URL 추출
-        
+        YouTube 영상에서 직접 접근 가능한 오디오 URL 추출.
+
         Args:
             youtube_url: YouTube 영상 URL
-            
+
         Returns:
             직접 접근 가능한 오디오 스트림 URL
-            
+
         Raises:
             RuntimeError: URL 추출 실패 시
         """
-        # 현재 실행 중인 Python 인터프리터로 yt_dlp 모듈 실행
-        # (Windows PATH 문제로 yt-dlp 실행 파일을 못 찾는 경우를 회피)
+        api_url = _extract_stream_url_with_python_api(youtube_url)
+        if api_url:
+            return api_url
+
+        runtime_flags = _yt_dlp_runtime_flags()
         strategies = [
-            [sys.executable, "-m", "yt_dlp", "--no-playlist", "-f", "ba/b", "-g", youtube_url],
-            [sys.executable, "-m", "yt_dlp", "--no-playlist", "--extractor-args", "youtube:player_client=web", "-f", "ba/b", "-g", youtube_url],
-            [sys.executable, "-m", "yt_dlp", "--no-playlist", "--extractor-args", "youtube:player_client=android,web", "-f", "b/best", "-g", youtube_url],
+            [sys.executable, "-m", "yt_dlp", *runtime_flags, "--no-playlist", "--print", "url", "-f", "ba/b", youtube_url],
+            [sys.executable, "-m", "yt_dlp", *runtime_flags, "-f", "ba/b", "-g", youtube_url],
+            [sys.executable, "-m", "yt_dlp", "--no-playlist", "--print", "url", "-f", "ba/b", youtube_url],
+            [sys.executable, "-m", "yt_dlp", "-f", "ba/b", "-g", youtube_url],
         ]
 
         errors = []
-        for cmd in strategies:
+        for i, cmd in enumerate(strategies, 1):
             try:
-                result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=30)
-                lines = [line.strip() for line in result.stdout.splitlines() if line.strip().startswith("http")]
-                if lines:
-                    return lines[0]
-                errors.append("yt-dlp 출력이 비어 있음")
-            except FileNotFoundError as e:
-                raise RuntimeError("Python 실행 경로를 찾지 못했습니다.") from e
-            except subprocess.TimeoutExpired:
-                errors.append("yt-dlp 시간 초과(30초)")
-            except subprocess.CalledProcessError as e:
-                err = (e.stderr or "").strip()
-                errors.append(err or str(e))
+                result = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=30)
 
-        merged = "\n".join(errors)
+                direct_url = _first_stream_url(result.stdout)
+                if direct_url:
+                    return direct_url
+
+                direct_url = _first_stream_url(result.stderr)
+                if direct_url:
+                    return direct_url
+
+                if result.returncode != 0:
+                    stderr = result.stderr.strip()[:150]
+                    errors.append(f"시도 {i} 실패 (RC={result.returncode}): {stderr}")
+                else:
+                    errors.append(f"시도 {i}: URL 출력 없음")
+
+            except subprocess.TimeoutExpired:
+                errors.append(f"시도 {i}: 시간 초과")
+            except FileNotFoundError:
+                errors.append(f"시도 {i}: 파일 미발견")
+            except Exception as e:
+                errors.append(f"시도 {i}: {str(e)[:80]}")
+
+        api_fallback_url = _extract_stream_url_with_python_api(youtube_url)
+        if api_fallback_url:
+            return api_fallback_url
+
+        error_msg = "\n- ".join(errors) if errors else "알 수 없는 오류"
+        merged = " ".join(errors)
         if "Video unavailable" in merged:
             raise RuntimeError(
                 f"입력한 영상에 접근할 수 없습니다: {youtube_url}\n"
                 "비공개/삭제/지역제한/연령제한일 수 있습니다."
             )
-        if "No supported JavaScript runtime" in merged:
-            raise RuntimeError(
-                f"yt-dlp JS 런타임 경고가 발생했습니다: {youtube_url}\n"
-                "Node.js 또는 Deno 설치 후 다시 시도하세요."
-            )
-        raise RuntimeError(f"yt-dlp 실행 실패: {youtube_url}\n{merged[:700]}")
+
+        raise RuntimeError(
+            f"yt-dlp를 사용하여 YouTube 오디오 URL을 추출할 수 없습니다.\n\n"
+            f"시도 결과:\n- {error_msg}\n\n"
+            f"해결 방법:\n"
+            f"1. yt-dlp 최신 버전: pip install -U yt-dlp\n"
+            f"2. URL 유효성 확인: {youtube_url}\n"
+            f"3. 영상 상태 확인 (비공개/삭제 등)\n"
+            f"4. 선택사항: Node.js 설치 시 더 많은 형식 지원"
+        )
 
     def _stream_and_transcribe(self, audio_url: str):
         """
@@ -343,13 +564,18 @@ class LiveSubtitleApp:
         Args:
             audio_url: ffmpeg이 수신할 오디오 스트림 URL
         """
+        lowered_url = audio_url.lower()
+        if "github.com/yt-dlp/yt-dlp/wiki" in lowered_url:
+            raise RuntimeError("yt-dlp가 스트림 URL 대신 안내 링크를 반환했습니다. 다른 추출 전략으로 재시도하세요.")
+
         # ffmpeg 명령어 설정
         # - loglevel error: 에러만 출력
         # - reconnect 옵션: 연결 끊김 시 자동 재연결
         # - s16le: 16-bit 리틀 엔디언 PCM 포맷
         # - pipe:1: 표준 출력으로 오디오 데이터 출력
+        ffmpeg_executable = _resolve_ffmpeg_executable()
         ffmpeg_cmd = [
-            "ffmpeg",
+            ffmpeg_executable,
             "-loglevel", "error",
             "-re",
             "-reconnect", "1",
@@ -380,8 +606,30 @@ class LiveSubtitleApp:
             # 정확히 CHUNK_BYTES 크기만큼 읽기
             raw = self._read_exact(process.stdout, CHUNK_BYTES)
             if not raw:
-                # 스트림 끝에 도달
-                break
+                # ffmpeg가 종료되었는지 확인하고, 종료된 경우 stderr를 함께 보고한다.
+                return_code = process.poll()
+                if return_code is not None:
+                    stderr_text = ""
+                    if process.stderr is not None:
+                        try:
+                            stderr_text = process.stderr.read().decode("utf-8", errors="ignore").strip()
+                        except Exception:
+                            stderr_text = ""
+
+                    if return_code == 0:
+                        raise RuntimeError("오디오 스트림이 종료되었습니다. (영상 종료 또는 입력 스트림 종료)")
+
+                    if stderr_text:
+                        raise RuntimeError(
+                            f"ffmpeg 입력 스트림 실패 (rc={return_code})\n"
+                            f"세부 오류: {stderr_text[-500:]}"
+                        )
+
+                    raise RuntimeError(f"ffmpeg 입력 스트림 실패 (rc={return_code})")
+
+                # 아직 실행 중인데 빈 데이터가 온 경우 잠시 대기 후 계속 시도
+                time.sleep(0.05)
+                continue
 
             # 바이너리 데이터를 float32 형식의 PCM 오디오로 변환 (-1.0 ~ 1.0 범위)
             current_chunk = np.frombuffer(raw, np.int16).astype(np.float32) / 32768.0
@@ -406,11 +654,14 @@ class LiveSubtitleApp:
                 audio_for_stt,
                 fp16=False,
                 language=LANGUAGE_HINT,
+                initial_prompt=self.transcription_prompt or None,
                 verbose=False,
                 condition_on_previous_text=True,
                 beam_size=5,
-                best_of=5,
                 temperature=0,
+                no_speech_threshold=0.55,
+                logprob_threshold=-1.0,
+                compression_ratio_threshold=2.4,
             )
 
             # 인식된 각 세그먼트(문장) 처리
@@ -536,6 +787,12 @@ class LiveSubtitleApp:
                 self.time_var.set(f"{self._fmt(selected.start_time)} ~ {self._fmt(selected.end_time)}")
                 self.last_displayed_text = selected.text
                 self.last_displayed_start = selected.start_time
+            else:
+                if self.current_display_text:
+                    self.prev_display_text = self.current_display_text
+                self.current_display_text = ""
+                self.subtitle_var.set("\n")
+                self.time_var.set("00:00.00 ~ 00:00.00")
 
             # 오래된 이벤트 정리
             min_keep_time = current_play_time - MAX_BUFFER_SECONDS

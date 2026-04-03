@@ -5,13 +5,9 @@
             "name": "Python: stream_youtube.py",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/stream_youtube.py",
+            "program": "${file}",
             "console": "integratedTerminal",
-            "python": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
-            "cwd": "${workspaceFolder}",
-            "env": {
-                "PATH": "${workspaceFolder}\\.venv\\Scripts;${env:LOCALAPPDATA}\\Microsoft\\WinGet\\Links;${env:PATH}"
-            }
+            "justMyCode": true
         }
     ]
 }
