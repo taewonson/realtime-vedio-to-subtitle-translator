@@ -25,13 +25,11 @@
   const HEALTH_URL = "http://127.0.0.1:8765/health";
   const INTERVAL_MS = 500;
   const HEALTH_CHECK_MS = 3000;
-  const HEALTH_WARN_INTERVAL_MS = 10000;
 
   // 기존 interval 제거
   if (window.__ytSyncIntervalId) {
     clearInterval(window.__ytSyncIntervalId);
     window.__ytSyncIntervalId = null;
-    console.log("[yt-sync] 기존 동기화 중단");
   }
 
   if (window.__ytSyncHealthIntervalId) {
@@ -40,7 +38,6 @@
   }
 
   window.__ytSyncServerOnline = false;
-  window.__ytSyncLastWarnAt = 0;
   window.__ytSyncSendBlockedUntil = 0;
 
   // YouTube 비디오 요소를 찾기 (다양한 선택자 시도)
@@ -74,18 +71,9 @@
     }
   }
 
-  function maybeWarnServerOffline() {
-    const now = Date.now();
-    if (now - window.__ytSyncLastWarnAt >= HEALTH_WARN_INTERVAL_MS) {
-      console.warn("[yt-sync] Python 서버가 응답하지 않습니다. 프로그램이 실행 중인지 확인하세요.");
-      window.__ytSyncLastWarnAt = now;
-    }
-  }
-
   async function sendState() {
     const video = getVideoElement();
     if (!video) {
-      console.debug("[yt-sync] 비디오 요소 미발견 (아직 로드 중?)");
       return;
     }
 
@@ -105,40 +93,23 @@
     };
 
     try {
-      const response = await fetch(SERVER_URL, {
+      await fetch(SERVER_URL, {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify(payload),
       });
-      
-      if (!response.ok) {
-        console.warn(`[yt-sync] 서버 응답 오류: ${response.status}`);
-      }
     } catch (err) {
       window.__ytSyncServerOnline = false;
       window.__ytSyncSendBlockedUntil = Date.now() + 10000;
-      maybeWarnServerOffline();
     }
   }
 
   // 동기화 시작
-  checkServerHealth().then((online) => {
-    if (!online) {
-      maybeWarnServerOffline();
-    } else {
-      console.log("[yt-sync] Python 서버 연결됨");
-    }
-  });
+  void checkServerHealth();
 
   window.__ytSyncHealthIntervalId = setInterval(async () => {
-    const online = await checkServerHealth();
-    if (online) {
-      window.__ytSyncLastWarnAt = 0;
-    }
+    await checkServerHealth();
   }, HEALTH_CHECK_MS);
 
   window.__ytSyncIntervalId = setInterval(sendState, INTERVAL_MS);
-  
-  console.log("[yt-sync] 동기화 시작됨 (Python 앱: localhost:8765)");
-  console.log("[yt-sync] 중단하려면: clearInterval(window.__ytSyncIntervalId); window.__ytSyncIntervalId = null;");
 })();
