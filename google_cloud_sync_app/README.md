@@ -4,7 +4,7 @@
 로컬 Python 앱이 YouTube 오디오를 받아 Google Cloud Speech-to-Text로 전사하고,
 Cloud Translation으로 번역한 뒤 Tkinter 화면에 동기화 자막을 보여주는 예제입니다.
 
-## 필수 환경 변수
+## 필수 환경 변수(RUN_SETUP_GUIDE 참고)
 
 ### Windows CMD 예시
 
