@@ -13,7 +13,6 @@ from __future__ import annotations
 이 파일은 수명주기와 데이터 흐름 조정에 집중합니다.
 """
 
-import os
 import queue
 import threading
 import time
@@ -27,6 +26,7 @@ from browser_sync.models import BrowserState
 from browser_sync.server import BrowserSyncServer
 from media.ffmpeg_streamer import FFmpegPCMStreamer
 from media.youtube_audio_source import YouTubeAudioResolver
+from env_config import load_app_config
 from session.session_manager import SessionManager
 from stt.google_speech_adapter import GoogleSpeechStreamingAdapter
 from subtitle.timeline_store import SubtitleTimelineStore
@@ -38,10 +38,7 @@ SYNC_SERVER_PORT = 8765
 BROWSER_STALE_SECONDS = 2.0
 MAX_BUFFER_SECONDS = 180.0
 
-GOOGLE_PROJECT_ID = os.getenv("GOOGLE_CLOUD_PROJECT", "").strip()
-GOOGLE_TRANSLATE_LOCATION = os.getenv("GOOGLE_TRANSLATE_LOCATION", "global").strip() or "global"
-SOURCE_LANGUAGE_CODE = os.getenv("SOURCE_LANGUAGE_CODE", "en-US").strip() or "en-US"
-TARGET_LANGUAGE_CODE = os.getenv("TARGET_LANGUAGE_CODE", "ko").strip() or "ko"
+APP_CONFIG = load_app_config()
 
 
 class AppCoordinator:
@@ -56,15 +53,15 @@ class AppCoordinator:
     def __init__(self, root: tk.Tk):
         # 클라우드 프로젝트 정보가 없으면 즉시 실패 처리합니다.
         # 이 값이 없으면 번역 클라이언트 경로를 만들 수 없습니다.
-        if not GOOGLE_PROJECT_ID:
+        if not APP_CONFIG.google_project_id:
             raise RuntimeError(
                 "GOOGLE_CLOUD_PROJECT 환경 변수가 비어 있습니다.\n"
-                "예: set GOOGLE_CLOUD_PROJECT=your-project-id"
+                "google_cloud_sync_app/.env 파일 또는 시스템 환경변수에 값을 설정하세요."
             )
 
         self.root = root
         self.ui = MainWindow(root)
-        self.ui.set_target_language(TARGET_LANGUAGE_CODE)
+        self.ui.set_target_language(APP_CONFIG.target_language_code)
 
         self.browser_state_queue: queue.Queue[BrowserState] = queue.Queue()
         self.status_queue: queue.Queue[str] = queue.Queue()
@@ -80,13 +77,13 @@ class AppCoordinator:
         self.ffmpeg_streamer = FFmpegPCMStreamer(sample_rate=16000, channels=1, bytes_per_sample=2, chunk_seconds=0.4)
         self.stt_adapter = GoogleSpeechStreamingAdapter(
             sample_rate_hz=16000,
-            language_code=SOURCE_LANGUAGE_CODE,
+            language_code=APP_CONFIG.source_language_code,
             interim_results=True,
             model="default",
         )
         self.translate_adapter = GoogleTranslateAdapter(
-            project_id=GOOGLE_PROJECT_ID,
-            location=GOOGLE_TRANSLATE_LOCATION,
+            project_id=APP_CONFIG.google_project_id,
+            location=APP_CONFIG.google_translate_location,
         )
         self.timeline_store = SubtitleTimelineStore()
         self.translation_executor = ThreadPoolExecutor(max_workers=4)
@@ -150,10 +147,10 @@ class AppCoordinator:
         try:
             translated = self.translate_adapter.translate_text(
                 text=source_text,
-                source_language=SOURCE_LANGUAGE_CODE.split("-")[0],
-                target_language=TARGET_LANGUAGE_CODE,
+                source_language=APP_CONFIG.source_language_code.split("-")[0],
+                target_language=APP_CONFIG.target_language_code,
             )
-            self.timeline_store.attach_translation(cue_id, translated, TARGET_LANGUAGE_CODE)
+            self.timeline_store.attach_translation(cue_id, translated, APP_CONFIG.target_language_code)
         except Exception as exc:
             self.status_queue.put(f"번역 오류: {exc}")
 

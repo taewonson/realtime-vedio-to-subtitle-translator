@@ -36,6 +36,20 @@ requirements.txt 주요 항목:
 - set TARGET_LANGUAGE_CODE=ko
 - set GOOGLE_TRANSLATE_LOCATION=global
 
+5-1) .env 파일로 간편 설정 (권장)
+- 위치: google_cloud_sync_app\.env
+- 예시 파일: google_cloud_sync_app\.env.example
+- 사용 방법:
+  1. google_cloud_sync_app\.env.example 파일을 복사해서
+     google_cloud_sync_app\.env 파일 생성(.env.example은 인식하지 않기 때문에 .env를 생성해야함)
+  2. 프로젝트 값/언어 코드를 본인 환경에 맞게 수정
+  3. 이후 main.py 실행 시 .env 값을 자동 로드
+
+주의:
+- OS에 이미 설정된 환경변수 값이 있으면 .env 값보다 OS 값이 우선합니다.
+- 인증 키 경로(GOOGLE_APPLICATION_CREDENTIALS)는 보안상 시스템 환경변수로
+  설정하는 방식을 권장합니다.
+
 참고:
 - SOURCE_LANGUAGE_CODE는 STT 인식 언어(BCP-47, 예: en-US)
 - TARGET_LANGUAGE_CODE는 번역 목표 언어(예: ko, en, ja)
