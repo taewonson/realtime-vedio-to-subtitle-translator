@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "YouTube Playback Sync Sender",
+  "version": "1.1.0",
+  "description": "Sends YouTube playback state to a local sync server for cloud subtitle timing.",
+  "minimum_chrome_version": "114",
+  "host_permissions": [
+    "http://127.0.0.1:8765/*",
+    "http://localhost:8765/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.youtube.com/*",
+        "https://www.youtube.com/*",
+        "https://youtube.com/*",
+        "https://m.youtube.com/*",
+        "https://music.youtube.com/*",
+        "https://youtu.be/*",
+        "https://www.youtube-nocookie.com/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
