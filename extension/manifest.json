@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "유튜브 자막 싱크 (YouTube Sync)",
+  "version": "1.0",
+  "description": "유튜브 재생 시간을 로컬 서버로 전송합니다.",
+  "content_scripts": [
+    {
+      "matches": ["*://www.youtube.com/watch*"],
+      "js": ["content.js"]
+    }
+  ]
+}
