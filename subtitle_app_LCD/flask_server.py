@@ -10,7 +10,6 @@ class SharedState:
     current_texts = {}
     current_time = 0.0
     total_time = 0.1
-    # 💡 명령 대기열 (LCD에서 날아온 명령을 잠시 보관하는 곳)
     pending_command = None 
 
 state = SharedState()
@@ -31,18 +30,22 @@ def sync_time():
             
     return jsonify({"status": "success"})
 
-# 💡 크롬 확장 프로그램이 0.5초마다 들러서 명령을 가져가는 창구
 @app.route('/get_command')
 def get_command():
     if state.pending_command:
         cmd = state.pending_command
-        state.pending_command = None # 💡 크롬이 가져가면 명령 삭제 (중복 방지)
+        state.pending_command = None 
         return jsonify(cmd)
     return jsonify({"command": None})
 
-def run_server(subtitles_data):
+# 💡 actual_duration 파라미터를 추가로 받습니다.
+def run_server(subtitles_data, actual_duration=0.1):
     state.subtitles = subtitles_data
-    if subtitles_data:
+    
+    # 💡 실제 길이가 있으면 그걸 쓰고, 없으면 (예외 상황) 자막의 마지막 시간 사용
+    if actual_duration > 0:
+        state.total_time = actual_duration
+    elif subtitles_data:
         state.total_time = subtitles_data[-1]['end']
         
     log = logging.getLogger('werkzeug')

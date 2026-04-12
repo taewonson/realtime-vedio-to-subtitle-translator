@@ -16,7 +16,7 @@ class SubtitleUI:
         self.pi_ip = "127.0.0.1"
         self.pi_port = 5005
         self.current_lang = "ko"
-        self.last_sent_payload = "" # 중복 전송 방지용 
+        self.last_sent_payload = ""
         
         self.root = tk.Tk()
         self.root.title("PC 자막 엔진 (URL 관리자)")
@@ -40,16 +40,6 @@ class SubtitleUI:
 
         threading.Thread(target=self.listen_for_commands, daemon=True).start()
 
-    def listen_for_commands(self):
-        while True:
-            try:
-                data, addr = self.sock_recv.recvfrom(1024)
-                msg = data.decode('utf-8')
-                if msg.startswith("SET_LANG:"):
-                    self.current_lang = msg.split(":")[1]
-            except:
-                pass
-
     def start_processing(self):
         url = self.url_entry.get().strip()
         if not url: return
@@ -70,7 +60,6 @@ class SubtitleUI:
         self.on_start_callback(url, update_progress, on_complete)
 
     def send_loop(self):
-        # 💡 시간과 텍스트 정보를 모두 가져옴
         state = self.get_state_callback()
         current_texts = state['texts']
         
@@ -78,7 +67,6 @@ class SubtitleUI:
         if current_texts and self.current_lang in current_texts:
             display_text = current_texts[self.current_lang]
             
-        # JSON 형태로 패키징
         payload_dict = {
             "text": display_text,
             "curr": state['curr'],
@@ -86,7 +74,6 @@ class SubtitleUI:
         }
         payload_str = json.dumps(payload_dict)
         
-        # 데이터가 바뀌었을 때 (시간이 흘러도 바뀜) 파이로 전송
         if payload_str != self.last_sent_payload:
             try:
                 self.sock_send.sendto(payload_str.encode('utf-8'), (self.pi_ip, self.pi_port))
@@ -96,35 +83,20 @@ class SubtitleUI:
         
         self.root.after(100, self.send_loop)
 
-    def listen_for_commands(self):
-            while True:
-                try:
-                    data, addr = self.sock_recv.recvfrom(1024)
-                    msg = data.decode('utf-8')
-                    if msg.startswith("SET_LANG:"):
-                        self.current_lang = msg.split(":")[1]
-                    # 💡 시간 이동 명령 추가
-                    elif msg.startswith("SEEK:"):
-                        seek_time = float(msg.split(":")[1])
-                        from flask_server import state
-                        state.pending_command = {"command": "seek", "time": seek_time}
-                except:
-                    pass
-
+    # 💡 3번이나 중복되어 있던 함수를 지우고, 명령어 처리가 완벽한 최종본 1개만 남겼습니다!
     def listen_for_commands(self):
         while True:
             try:
                 data, addr = self.sock_recv.recvfrom(1024)
                 msg = data.decode('utf-8')
                 
-                from flask_server import state # 상태 저장소 불러오기
+                from flask_server import state 
                 
                 if msg.startswith("SET_LANG:"):
                     self.current_lang = msg.split(":")[1]
                 elif msg.startswith("SEEK:"):
                     seek_time = float(msg.split(":")[1])
                     state.pending_command = {"command": "seek", "time": seek_time}
-                # 💡 재생, 정지, 볼륨 명령 추가
                 elif msg == "CMD:PLAY":
                     state.pending_command = {"command": "play"}
                 elif msg == "CMD:PAUSE":
