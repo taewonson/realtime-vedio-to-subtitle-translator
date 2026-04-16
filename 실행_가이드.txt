@@ -1,0 +1,106 @@
+[realtime-vedio-to-subtitle-translator 실행 가이드]
+
+1) Python 라이브러리 (필수)
+아래 패키지를 설치하세요.
+
+- flask
+- flask-cors
+- python-dotenv
+- requests
+- yt-dlp
+- google-cloud-speech
+- google-cloud-translate
+
+설치 명령 (PowerShell, 프로젝트 루트):
+
+python -m pip install flask flask-cors python-dotenv requests yt-dlp google-cloud-speech google-cloud-translate
+
+
+2) 시스템 의존성 (필수)
+- ffmpeg
+- ffprobe
+
+확인 명령:
+- ffmpeg -version
+- ffprobe -version
+
+
+3) Google Cloud 인증/환경 변수
+3-1) 인증
+- 로컬 개발 시 ADC 인증 필요:
+  - gcloud auth application-default login
+
+3-2) .env 설정
+프로젝트 루트에 .env 파일을 두고 아래를 설정하세요.
+
+필수
+- GCP_PROJECT_ID=your-gcp-project-id
+
+선택 (미설정 시 기본값 사용)
+- GCP_STT_LANGUAGE=en-US
+- GCP_STT_CHUNK_SECONDS=50
+- GCP_TRANSLATE_LOCATION=global
+- GCP_TRANSLATE_BATCH_SIZE=100
+
+주의
+- ADC 전용 사용 기준이므로 .env에 GOOGLE_APPLICATION_CREDENTIALS 를 넣지 않습니다.
+
+
+4) 포트/통신 정보
+- Flask HTTP: 5000
+  - /sync
+  - /get_command
+  - /detect_url
+  - /get_detected_url
+- UDP (PC 앱 <-> LCD 컨트롤러)
+  - PC 앱 수신: 5006
+  - LCD 컨트롤러 수신: 5005
+
+
+5) 실행 순서
+Step 1. 메인 앱 실행 (Flask 서버 포함)
+- python main.py
+
+Step 2. Chrome 확장 로드
+- chrome://extensions 접속
+- 개발자 모드 ON
+- "압축해제된 확장 프로그램 로드" 클릭
+- extention 폴더 선택
+
+Step 3. 유튜브 탭 열기/새로고침
+- 자동 감지 영역에 URL/제목 표시 확인
+
+Step 4. (선택) LCD 컨트롤러 실행
+- python fake_pi_lcd.py
+
+
+6) 동작 흐름 요약
+- 확장이 유튜브 재생시간/URL/제목을 Flask(5000)로 전송
+- main.py UI가 Flask에서 감지 URL/제목을 읽어 표시
+- 사용자가 URL 처리 시작 시 STT -> 번역 수행
+- 결과 자막 상태가 Flask/UDP를 통해 컨트롤러로 전달
+
+
+7) 자주 발생하는 문제
+7-1) No module named ...
+- 라이브러리가 설치되지 않은 상태입니다.
+- 위 1) 항목의 설치 명령을 다시 실행하세요.
+
+7-2) URL은 감지되는데 제목이 비는 경우
+- 유튜브 SPA 특성상 제목 DOM 로딩이 늦을 수 있습니다.
+- 유튜브 탭 새로고침 후 다시 확인하세요.
+- 확장 재로드 후 재확인하세요.
+
+7-3) 확장 동작이 없는 경우
+- 확장이 실제로 extention 폴더를 바라보는지 확인
+- 유튜브 탭을 확장 로드 이후에 새로고침
+- localhost:5000 접근 가능 여부 확인
+
+
+8) 최소 실행 체크리스트
+- [ ] Python 패키지 설치 완료
+- [ ] ffmpeg/ffprobe 설치 확인
+- [ ] gcloud ADC 로그인 완료
+- [ ] .env의 GCP_PROJECT_ID 설정
+- [ ] main.py 실행 중
+- [ ] Chrome 확장 로드 + 유튜브 탭 새로고침
