@@ -1,0 +1,17 @@
+# 실행 안내
+# 1. 패키지 설치: python -m pip install -r requirements.txt
+# 2. ffmpeg/ffprobe 확인: ffmpeg -version / ffprobe -version
+# 3. 로컬 환경 파일 확인: .env, credentials/*.json
+# 4. 인증 확인: python test.py
+# 5. 메인 앱 실행: python main.py
+# 6. Chrome 확장 로드: chrome://extensions -> 개발자 모드 -> extention 폴더 선택
+# 7. 선택 실행: python fake_pi_lcd.py
+
+flask
+flask-cors
+python-dotenv
+requests
+yt-dlp
+google-cloud-speech
+google-cloud-translate
+google-auth

@@ -8,11 +8,12 @@ from dataclasses import dataclass
 from typing import List, Tuple
 
 from google.cloud import speech
+from google_cloud_auth import load_google_credentials, load_google_env
 
 # ==========================================
 # Google Cloud STT 기반 자막 추출 엔진
 # - 기존 함수명/반환 구조 유지
-# - 로컬 개발용 (ADC: gcloud auth application-default login)
+# - 인증 정보 로딩은 google_cloud_auth.py에서 일괄 처리
 # - 긴 오디오는 50초 단위로 잘라서 순차 인식
 # ==========================================
 
@@ -23,11 +24,21 @@ class SimpleSegment:
     text: str
 
 
+def _safe_print(message):
+    # 진행 메시지 출력 실패가 실제 STT 작업 실패로 번지지 않게 한다.
+    try:
+        print(message)
+    except UnicodeEncodeError:
+        print(str(message).encode("ascii", errors="replace").decode("ascii"))
+
+
 def extract_original_subtitles(youtube_url, status_callback=None) -> Tuple[List[SimpleSegment], float]:
     def update_status(msg, percent):
-        print(msg)
+        _safe_print(msg)
         if status_callback:
             status_callback(msg, percent)
+
+    load_google_env()
 
     # 설정값
     SOURCE_LANGUAGE = os.getenv("GCP_STT_LANGUAGE", "en-US")
@@ -86,7 +97,9 @@ def extract_original_subtitles(youtube_url, status_callback=None) -> Tuple[List[
 
         update_status("[3/4] Google Cloud STT 인식 중...", 30)
 
-        client = speech.SpeechClient()
+        # 인증 로딩은 공통 헬퍼에 맡겨 STT/번역 쪽 경로 해석을 동일하게 유지한다.
+        credentials = load_google_credentials()
+        client = speech.SpeechClient(credentials=credentials)
         segments: List[SimpleSegment] = []
 
         total_chunks = int((duration + CHUNK_SECONDS - 1) // CHUNK_SECONDS)

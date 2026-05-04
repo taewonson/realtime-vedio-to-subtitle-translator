@@ -10,6 +10,14 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+def _safe_print(message):
+    # Windows 콘솔 인코딩 때문에 백그라운드 스레드가 죽지 않도록 출력만 방어한다.
+    try:
+        print(message)
+    except UnicodeEncodeError:
+        print(str(message).encode("ascii", errors="replace").decode("ascii"))
+
+
 def _run_server_safe():
     try:
         run_server()
@@ -33,10 +41,13 @@ def start_background_work(url, status_callback, on_complete_callback):
             subtitles_data = translate_subtitles(segments, status_callback)
             update_subtitles_data(subtitles_data, actual_duration, source_url=url)
             
-            on_complete_callback()
+            on_complete_callback(success=True)
         except Exception as e:
-            print(f"❌ 오류 발생: {e}")
-            status_callback(f"오류 발생: {e}", 0)
+            # 실패도 완료 콜백으로 넘겨 UI 버튼과 알림창이 반드시 복구되게 한다.
+            error_message = f"오류 발생: {e}"
+            _safe_print(f"Error: {error_message}")
+            status_callback(error_message, 0)
+            on_complete_callback(success=False, message=error_message)
 
     threading.Thread(target=worker, daemon=True).start()
 

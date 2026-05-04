@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox
 import socket
 import threading
 import json
@@ -23,6 +23,7 @@ class SubtitleUI:
         self.last_sent_payload = ""
         self.last_detected_url = ""
         self.last_detected_title = ""
+        self.is_processing = False
         
         self.root = tk.Tk()
         self.root.title("PC 자막 엔진 (URL 관리자)")
@@ -93,19 +94,35 @@ class SubtitleUI:
             time.sleep(0.5)
 
     def start_processing(self):
+        # 같은 URL 처리 작업이 겹치면 상태와 진행률이 꼬일 수 있어 한 번에 하나만 허용한다.
+        if self.is_processing:
+            return
+
         url = self.url_entry.get().strip()
         if not url: return
+        self.is_processing = True
         self.start_btn.config(state='disabled', text="처리 중...")
+        self.status_label.config(text="처리 시작...")
         self.progress["value"] = 0
         
         def update_progress(msg, percent):
             self.root.after(0, lambda: self.status_label.config(text=msg))
             self.root.after(0, lambda: self.progress.configure(value=percent))
             
-        def on_complete():
-            self.root.after(0, lambda: self.start_btn.config(state='normal', text="새 URL 추출 시작"))
-            self.root.after(0, lambda: self.status_label.config(text="✅ 전송 중... (파이 LCD를 확인하세요)"))
-            if not hasattr(self, 'loop_running'):
+        def on_complete(success=True, message=None):
+            def finish_ui():
+                self.is_processing = False
+                self.start_btn.config(state='normal', text="새 URL 추출 시작")
+                if success:
+                    self.status_label.config(text="✅ 전송 중... (파이 LCD를 확인하세요)")
+                else:
+                    error_text = message or "자막 추출에 실패했습니다."
+                    self.status_label.config(text=error_text)
+                    # 상태 라벨만으로 실패를 놓치지 않도록 사용자에게 명시적으로 알린다.
+                    messagebox.showerror("자막 추출 실패", error_text)
+
+            self.root.after(0, finish_ui)
+            if success and not hasattr(self, 'loop_running'):
                 self.loop_running = True
                 self.send_loop()
             
