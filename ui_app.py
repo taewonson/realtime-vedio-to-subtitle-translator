@@ -1,12 +1,24 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
+import os
 import socket
 import threading
 import json
 import requests
 import time
+from dotenv import load_dotenv
 
 from flask_server import state
+
+load_dotenv()
+
+
+def _env_int(name, default):
+    try:
+        return int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
 
 class SubtitleUI:
     def __init__(self, on_start_callback, get_state_callback):
@@ -15,10 +27,11 @@ class SubtitleUI:
         
         self.sock_send = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock_recv = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.sock_recv.bind(("0.0.0.0", 5006))
+        self.command_port = _env_int("SUBTITLE_PC_COMMAND_PORT", 5006)
+        self.sock_recv.bind(("0.0.0.0", self.command_port))
         
-        self.pi_ip = "127.0.0.1"
-        self.pi_port = 5005
+        self.pi_ip = os.getenv("SUBTITLE_PI_IP", "127.0.0.1").strip() or "127.0.0.1"
+        self.pi_port = _env_int("SUBTITLE_PI_PORT", 5005)
         self.current_lang = "original"
         self.last_sent_payload = ""
         self.last_detected_url = ""

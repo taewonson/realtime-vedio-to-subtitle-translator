@@ -1,0 +1,85 @@
+라즈베리파이 LCD 실행 방법
+==========================
+
+1. PC의 .env 설정
+-----------------
+
+PC에서 라즈베리파이 IP를 설정합니다.
+
+SUBTITLE_PI_IP=라즈베리파이_IP
+SUBTITLE_PI_PORT=5005
+
+예시:
+
+SUBTITLE_PI_IP=192.168.0.23
+SUBTITLE_PI_PORT=5005
+
+
+2. 라즈베리파이의 .env 설정
+---------------------------
+
+라즈베리파이에서 PC IP를 설정합니다.
+
+SUBTITLE_PC_IP=PC_IP
+SUBTITLE_PI_PORT=5005
+SUBTITLE_PC_COMMAND_PORT=5006
+SUBTITLE_LCD_GEOMETRY=1024x600
+SUBTITLE_LCD_FULLSCREEN=1
+
+예시:
+
+SUBTITLE_PC_IP=192.168.0.10
+SUBTITLE_PI_PORT=5005
+SUBTITLE_PC_COMMAND_PORT=5006
+SUBTITLE_LCD_GEOMETRY=1024x600
+SUBTITLE_LCD_FULLSCREEN=1
+
+
+3. 라즈베리파이에 파일 복사
+---------------------------
+
+라즈베리파이에 아래 파일을 복사합니다.
+
+- pi_lcd.py
+- requirements.txt
+- .env
+
+프로젝트 폴더 전체를 복사해도 됩니다.
+
+
+4. 라즈베리파이에서 실행
+------------------------
+
+라즈베리파이 터미널에서 프로젝트 폴더로 이동한 뒤 실행합니다.
+
+python3 -m pip install -r requirements.txt
+python3 pi_lcd.py
+
+
+5. PC에서 실행
+--------------
+
+PC에서 프로그램을 실행합니다.
+
+python main.py
+
+그 다음 Chrome 확장 프로그램으로 유튜브 URL을 감지하고, 자막 추출을 시작한 뒤 영상을 재생하면 라즈베리파이 LCD에 자막이 표시됩니다.
+
+
+6. 참고
+-------
+
+라즈베리파이 IP 확인:
+
+hostname -I
+
+PC IP 확인:
+
+ipconfig
+
+사용 포트:
+
+- PC -> 라즈베리파이: UDP 5005
+- 라즈베리파이 -> PC: UDP 5006
+
+자막이 표시되지 않으면 Windows 방화벽에서 Python 통신을 허용해주세요.
