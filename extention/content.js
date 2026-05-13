@@ -75,7 +75,7 @@ setInterval(() => {
 
     const v = document.querySelector("video");
     if (!v) return;
-    
+
     Promise.all([
         fetch(API + "/sync", {
             method: "POST",
@@ -95,4 +95,5 @@ setInterval(() => {
             case "pause": v.pause(); break;
         }
     }).catch(() => {});
+
 }, INTERVAL);

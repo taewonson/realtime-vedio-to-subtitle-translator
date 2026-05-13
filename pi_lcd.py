@@ -25,6 +25,7 @@ LCD_WIDTH, LCD_HEIGHT = 1024, 600
 GEOMETRY = os.getenv("SUBTITLE_LCD_GEOMETRY", f"{LCD_WIDTH}x{LCD_HEIGHT}").strip() or f"{LCD_WIDTH}x{LCD_HEIGHT}"
 FULLSCREEN = os.getenv("SUBTITLE_LCD_FULLSCREEN", "1").strip().lower() in {"1", "true", "yes", "on"}
 DEFAULT_WRAP = 940
+FONT_FAMILY = "Malgun Gothic"
 
 # PC에서 라즈베리파이로 오는 자막 데이터는 MY_PORT로 받습니다.
 # 라즈베리파이의 버튼 명령은 PC_PORT로 다시 보내며, 둘 다 UDP를 사용합니다.
@@ -40,12 +41,12 @@ last_source_text = ""
 subtitle_pages = [""]
 
 LANG_LABELS = {
-    "original": "Original",
-    "ko": "Korean",
-    "en": "English",
-    "ja": "Japanese",
-    "zh": "Chinese",
-    "de": "German",
+    "original": "원본",
+    "ko": "한국어",
+    "en": "영어",
+    "ja": "일본어",
+    "zh": "중국어",
+    "de": "독일어",
 }
 
 
@@ -177,9 +178,9 @@ def update_ui(payload):
     last_total_time = float(total)
 
     if title and isinstance(title, str):
-        title_label.config(text=f"Now playing: {title}")
+        title_label.config(text=f"현재 재생: {title}")
 
-    language_label.config(text=f"Subtitle: {LANG_LABELS.get(lang_code, lang_code)}")
+    language_label.config(text=f"자막: {LANG_LABELS.get(lang_code, lang_code)}")
 
     if isinstance(overlay_text, str) and overlay_text.strip():
         # overlay_text는 다른 영상 재생 감지 같은 특수 상태를 표시할 때 사용합니다.
@@ -250,7 +251,7 @@ lang_frame.pack(fill="x")
 
 # 언어 버튼은 이후 자막 패킷에 어떤 언어를 담을지만 PC에 알려줍니다.
 # 실제 번역 작업은 PC에서 처리합니다.
-for label, code in [("KO", "ko"), ("EN", "en"), ("JA", "ja"), ("DE", "de"), ("ORG", "original")]:
+for label, code in [("한국어", "ko"), ("영어", "en"), ("일본어", "ja"), ("독일어", "de"), ("원본", "original")]:
     btn = tk.Button(
         lang_frame,
         text=label,
@@ -259,17 +260,33 @@ for label, code in [("KO", "ko"), ("EN", "en"), ("JA", "ja"), ("DE", "de"), ("OR
         fg="white",
         activebackground="#444444",
         activeforeground="white",
-        font=("DejaVu Sans", 12, "bold"),
+        font=(FONT_FAMILY, 14, "bold"),
         relief="flat",
         padx=18,
-        pady=9,
+        pady=12,
+        width=8,
     )
     btn.pack(side="left", padx=4, pady=5)
 
+# 닫기 버튼
+close_btn = tk.Button(
+    lang_frame,
+    text="✕",
+    command=root.destroy,
+    bg="#8b0000",
+    fg="white",
+    font=(FONT_FAMILY, 16, "bold"),
+    relief="flat",
+    padx=12,
+    pady=8,
+    width=3,
+)
+close_btn.pack(side="right", padx=8, pady=5)
+
 title_label = tk.Label(
     root,
-    text=f"Waiting for subtitles...  PC: {PC_IP}  UDP: {MY_PORT}",
-    font=("DejaVu Sans", 13, "bold"),
+    text=f"자막 대기 중...  PC: {PC_IP}  UDP: {MY_PORT}",
+    font=(FONT_FAMILY, 13, "bold"),
     fg="#d8d8d8",
     bg="#151515",
 )
@@ -277,8 +294,8 @@ title_label.pack(fill="x", padx=20, pady=(8, 0))
 
 language_label = tk.Label(
     root,
-    text="Subtitle: Original",
-    font=("DejaVu Sans", 12, "bold"),
+    text="자막: 원본",
+    font=(FONT_FAMILY, 12, "bold"),
     fg="#91c9ff",
     bg="#151515",
 )
@@ -286,8 +303,8 @@ language_label.pack(fill="x", padx=20, pady=(4, 0))
 
 lcd_label = tk.Label(
     root,
-    text="Start the PC app, then play the selected video.",
-    font=("DejaVu Sans", 30, "bold"),
+    text="PC 앱을 시작한 후 영상을 재생하세요.",
+    font=(FONT_FAMILY, 30, "bold"),
     fg="white",
     bg="#151515",
     wraplength=DEFAULT_WRAP,
@@ -299,34 +316,41 @@ lcd_label.pack(expand=True, fill="both", padx=20, pady=5)
 media_frame = tk.Frame(root, bg="#151515")
 media_frame.pack(fill="x", padx=20, pady=5)
 
+control_frame = tk.Frame(root, bg="#151515")
+control_frame.pack(fill="x", padx=20, pady=(5, 10))
+
 play_btn = tk.Button(
-    media_frame,
-    text="Play",
+    control_frame,
+    text="재생",
     bg="#248a3d",
     fg="white",
-    font=("DejaVu Sans", 12, "bold"),
+    font=(FONT_FAMILY, 15, "bold"),
     relief="flat",
-    width=12,
+    height=2,
+    padx=20,
+    pady=12,
 )
-play_btn.bind("<ButtonPress-1>", lambda _event: send_play())
-play_btn.pack(side="left", padx=(0, 10))
+play_btn.config(command=send_play)
+play_btn.pack(side="left", expand=True, fill="x", padx=(0, 10))
 
 pause_btn = tk.Button(
-    media_frame,
-    text="Pause",
+    control_frame,
+    text="정지",
     bg="#b83232",
     fg="white",
-    font=("DejaVu Sans", 12, "bold"),
+    font=(FONT_FAMILY, 15, "bold"),
     relief="flat",
-    width=12,
+    height=2,
+    padx=20,
+    pady=12,
 )
-pause_btn.bind("<ButtonPress-1>", lambda _event: send_pause())
-pause_btn.pack(side="left", padx=(0, 20))
+pause_btn.config(command=send_pause)
+pause_btn.pack(side="left", expand=True, fill="x", padx=(0, 0))
 
 player_frame = tk.Frame(root, bg="#151515")
 player_frame.pack(side="bottom", fill="x", pady=(5, 18), padx=20)
 
-time_label = tk.Label(player_frame, text="0:00 / 0:00", font=("DejaVu Sans Mono", 14, "bold"), fg="#aaaaaa", bg="#151515")
+time_label = tk.Label(player_frame, text="0:00 / 0:00", font=(FONT_FAMILY, 14, "bold"), fg="#aaaaaa", bg="#151515")
 time_label.pack(side="left", padx=(0, 18))
 
 canvas = tk.Canvas(player_frame, height=20, bg="#151515", highlightthickness=0, cursor="hand2")
@@ -335,7 +359,7 @@ canvas.bind("<ButtonPress-1>", on_press)
 canvas.bind("<B1-Motion>", on_drag)
 canvas.bind("<ButtonRelease-1>", on_release)
 
-root.after(100, lambda: update_ui({"text": "Waiting...", "curr": 0, "total": 1}))
+root.after(100, lambda: update_ui({"text": "대기 중...", "curr": 0, "total": 1}))
 threading.Thread(target=receive_loop, daemon=True).start()
 
 root.mainloop()
