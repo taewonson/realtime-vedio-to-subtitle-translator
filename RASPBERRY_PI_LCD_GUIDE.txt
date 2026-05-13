@@ -1,6 +1,56 @@
 라즈베리파이 LCD 실행 방법
 ==========================
 
+⚠️ 중요: PC와 라즈베리파이 두 가지 모드 구분
+==============================================
+
+두 가지 실행 방식이 있습니다:
+
+A) PC로 테스트할 때 (라즈베리파이 끈 상태)
+   - 프로그램: fake_pi_lcd.py 실행
+   - .env: 수정 없음 (기본값 사용)
+   - 네트워크: localhost(127.0.0.1)에서만 동작
+
+B) 라즈베리파이에서 실행할 때
+   - 프로그램: pi_lcd.py 실행
+   - .env: PC의 실제 IP 설정 필요
+   - 네트워크: 실제 네트워크 IP 사용
+
+
+[ 모드 A: PC 테스트 ]
+====================
+
+1. .env 설정 (수정 필요 없음 - 기본값 사용)
+------------------------------------------
+
+기본값 그대로 둡니다:
+
+SUBTITLE_PC_IP=127.0.0.1
+SUBTITLE_PI_PORT=5005
+SUBTITLE_PC_COMMAND_PORT=5006
+SUBTITLE_LCD_GEOMETRY=1024x600
+SUBTITLE_LCD_FULLSCREEN=0
+
+💡 참고: FULLSCREEN=0 이면 일반 윈도우 창으로 표시됨
+
+
+2. PC에서 실행 (두 개 터미널에서 각각 실행)
+--------------------------------------------
+
+터미널 1 - PC 메인 앱 실행:
+$ python main.py
+
+터미널 2 - fake LCD 시뮬레이터 실행:
+$ python fake_pi_lcd.py
+
+3. 테스트 완료
+--------------
+YouTube URL 입력 → 자막 추출 → fake_pi_lcd.py 창에 자막 표시됨
+
+
+[ 모드 B: 라즈베리파이 실행 ]
+============================
+
 1. PC의 .env 설정
 -----------------
 
@@ -20,7 +70,7 @@ SUBTITLE_PI_PORT=5005
 
 라즈베리파이에서 PC IP를 설정합니다.
 
-SUBTITLE_PC_IP=PC_IP
+SUBTITLE_PC_IP=PC의_실제_IP
 SUBTITLE_PI_PORT=5005
 SUBTITLE_PC_COMMAND_PORT=5006
 SUBTITLE_LCD_GEOMETRY=1024x600
@@ -33,6 +83,8 @@ SUBTITLE_PI_PORT=5005
 SUBTITLE_PC_COMMAND_PORT=5006
 SUBTITLE_LCD_GEOMETRY=1024x600
 SUBTITLE_LCD_FULLSCREEN=1
+
+💡 FULLSCREEN=1 이면 전체 화면으로 LCD처럼 표시됨
 
 
 3. 라즈베리파이에 파일 복사
@@ -66,20 +118,39 @@ python main.py
 그 다음 Chrome 확장 프로그램으로 유튜브 URL을 감지하고, 자막 추출을 시작한 뒤 영상을 재생하면 라즈베리파이 LCD에 자막이 표시됩니다.
 
 
-6. 참고
--------
+🌐 네트워크 설정 정리
+====================
+
+IP 확인 방법
+-----------
 
 라즈베리파이 IP 확인:
-
-hostname -I
+$ hostname -I
 
 PC IP 확인:
+Windows: ipconfig
+Linux/Mac: ifconfig
 
-ipconfig
+포트 정보
+--------
 
-사용 포트:
+- PC -> 라즈베리파이 LCD: UDP 5005 (자막 데이터 전송)
+- 라즈베리파이 LCD -> PC: UDP 5006 (버튼 명령 전송)
 
-- PC -> 라즈베리파이: UDP 5005
-- 라즈베리파이 -> PC: UDP 5006
 
-자막이 표시되지 않으면 Windows 방화벽에서 Python 통신을 허용해주세요.
+⚠️ 트러블슈팅
+==============
+
+자막이 표시되지 않으면:
+1. Windows 방화벽에서 Python 통신 허용
+2. 라즈베리파이와 PC가 같은 네트워크 연결 확인
+3. .env 파일의 IP 주소가 정확한지 확인
+4. 포트 5005, 5006이 차단되지 않았는지 확인
+
+Fullscreen 토글:
+- Raspberry Pi: ESC 키 누르면 fullscreen 해제
+- PC (fake_pi_lcd.py): 이미 창 모드로 실행되므로 ESC 불필요
+
+프로그램 종료:
+- Raspberry Pi: Q 키 또는 닫기 버튼
+- PC: 일반 창 닫기
