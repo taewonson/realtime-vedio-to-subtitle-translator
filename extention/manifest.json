@@ -1,0 +1,15 @@
+﻿{
+  "manifest_version": 3,
+  "name": "YouTube Sync",
+  "version": "1.0",
+  "description": "Send YouTube video time to local server.",
+  "permissions": [],
+  "host_permissions": ["http://localhost:5000/*"],
+  "content_scripts": [
+    {
+      "matches": ["*://www.youtube.com/*", "*://youtube.com/*", "*://*.youtube.com/*", "*://youtu.be/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
