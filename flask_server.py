@@ -1,3 +1,4 @@
+# Chrome 확장과 PC/LCD 프로그램이 공유하는 재생 상태, 자막, 제어 명령을 Flask API로 관리합니다.
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from bisect import bisect_right
@@ -14,24 +15,37 @@ class SharedState:
     백그라운드로 돌아가는 Flask 스레드와 메인 UI 스레드 간에 데이터를 공유하기 위한 상태 저장소입니다.
     데이터베이스 대신 메모리 상에서 현재 재생 상태와 자막 데이터를 들고 있습니다.
     """
-    subtitles = []                 # 전체 자막 데이터 리스트
-    subtitle_starts = []           # 이진 탐색(bisect)을 위한 자막 시작 시간 리스트
-    current_texts = {}             # 현재 재생 시간에 해당하는 다국어 자막 세트
-    current_time = 0.0             # 현재 영상의 재생 시간 (초)
-    total_time = 0.1               # 영상의 전체 길이 (초)
-    pending_command = None         # 크롬 확장 프로그램으로 보낼 대기 중인 제어 명령 (play, pause, seek)
-    detected_youtube_url = None    # 확장 프로그램에서 감지한 유튜브 URL
-    detected_youtube_title = None  # 확장 프로그램에서 감지한 유튜브 영상 제목
-    current_video_title = ""       # 현재 자막 처리 중인 영상 제목
-    active_video_url = ""          # 현재 자막 처리 중인 영상 URL
-    active_video_key = ""          # 영상 식별 키 (예: 유튜브 video id)
-    current_cue_start = None       # 현재 화면에 표시될 자막의 시작 시간
-    current_cue_end = None         # 현재 화면에 표시될 자막의 종료 시간
-    playback_mismatch = False      # 대상 영상과 실제 크롬에서 재생 중인 영상이 다른지 여부 플래그
-    consecutive_mismatch = 0       # 연속된 영상 불일치 카운트 (스파이크 방지)
-    consecutive_match = 0          # 연속된 영상 일치 카운트
-    active_sync_sender = ""        # 현재 동기화 신호를 보내고 있는 브라우저 탭의 식별자
-    last_sync_received_at = 0.0    # 마지막으로 동기화 신호를 받은 시간 (타임아웃 처리용)
+    def __init__(self):
+        self.subtitles = []
+        self.subtitle_starts = []
+        self.current_texts = {}
+        self.current_time = 0.0
+        self.total_time = 0.1
+        self.pending_command = None
+        self.detected_youtube_url = None
+        self.detected_youtube_title = None
+        self.current_video_title = ""
+        self.active_video_url = ""
+        self.active_video_key = ""
+        self.current_cue_start = None
+        self.current_cue_end = None
+        self.playback_mismatch = False
+        self.consecutive_mismatch = 0
+        self.consecutive_match = 0
+        self.active_sync_sender = ""
+        self.last_sync_received_at = 0.0
+
+    def reset_display(self):
+        self.current_texts = {}
+        self.current_cue_start = None
+        self.current_cue_end = None
+
+    def reset_sync(self):
+        self.playback_mismatch = False
+        self.consecutive_mismatch = 0
+        self.consecutive_match = 0
+        self.active_sync_sender = ""
+        self.last_sync_received_at = 0.0
 
 # 전역 상태 객체 초기화
 state = SharedState()
@@ -47,9 +61,7 @@ SYNC_SENDER_STALE_SECONDS = 2.5    # 이 시간 동안 신호가 없으면 다�
 
 def _clear_current_display_state():
     """현재 화면에 표시될 자막 관련 상태를 초기화(화면에서 지움)합니다."""
-    state.current_texts = {}
-    state.current_cue_start = None
-    state.current_cue_end = None
+    state.reset_display()
 
 
 def _extract_video_key(url):
@@ -194,11 +206,7 @@ def sync_time():
                     return jsonify({"status": "success"})
             else:
                 # 아직 분석 대상 영상이 지정되지 않은 경우 초기화 상태 유지
-                state.consecutive_mismatch = 0
-                state.consecutive_match = 0
-                state.playback_mismatch = False
-                state.active_sync_sender = ""
-                state.last_sync_received_at = 0.0
+                state.reset_sync()
                 return jsonify({"status": "success"})
 
             # 다른 영상 재생 중이면 자막 탐색을 하지 않음
@@ -287,18 +295,15 @@ def update_subtitles_data(subtitles_data, actual_duration=0.1, source_url=""):
     """
     state.subtitles = _normalize_subtitles(subtitles_data)
     state.subtitle_starts = [sub["start"] for sub in state.subtitles]
-    state.total_time = actual_duration if actual_duration > 0 else (subtitles_data[-1]['end'] if subtitles_data else 0.1)
+    normalized_duration = state.subtitles[-1]["end"] if state.subtitles else 0.1
+    state.total_time = actual_duration if actual_duration > 0 else normalized_duration
     state.current_time = 0.0
     _clear_current_display_state()
     state.active_video_url = source_url if isinstance(source_url, str) else ""
     state.active_video_key = _extract_video_key(state.active_video_url)
     
     # 동기화 상태 변수들 초기화
-    state.playback_mismatch = False
-    state.consecutive_mismatch = 0
-    state.consecutive_match = 0
-    state.active_sync_sender = ""
-    state.last_sync_received_at = 0.0
+    state.reset_sync()
 
 
 def run_server():

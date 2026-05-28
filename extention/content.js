@@ -1,4 +1,5 @@
-﻿// YouTube Subtitle Sync - Content Script (Improved detection)
+﻿// YouTube 페이지에서 URL, 제목, 재생 시간을 로컬 Flask 서버와 동기화하고 PC 명령을 영상에 반영합니다.
+// YouTube Subtitle Sync - Content Script (Improved detection)
 const API = "http://localhost:5000";
 const INTERVAL = 500;
 let lastSentSignature = "";

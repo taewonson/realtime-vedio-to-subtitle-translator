@@ -1,3 +1,4 @@
+# 라즈베리파이 LCD 화면에 자막을 표시하고 언어/재생/탐색/단어 저장 명령을 PC로 보냅니다.
 import json
 import os
 import socket
@@ -27,7 +28,6 @@ PC_PORT = env_int("SUBTITLE_PC_COMMAND_PORT", 5006)   # PC 측 제어 명령 수
 LCD_WIDTH, LCD_HEIGHT = 1024, 600
 GEOMETRY = os.getenv("SUBTITLE_LCD_GEOMETRY", f"{LCD_WIDTH}x{LCD_HEIGHT}").strip() or f"{LCD_WIDTH}x{LCD_HEIGHT}"
 FULLSCREEN = os.getenv("SUBTITLE_LCD_FULLSCREEN", "1").strip().lower() in {"1", "true", "yes", "on"}
-DEFAULT_WRAP = 940
 FONT_FAMILY = "Malgun Gothic"
 
 # ==========================================
@@ -52,6 +52,39 @@ LANG_LABELS = {
     "original": "원본", "ko": "한국어", "en": "영어", 
     "ja": "일본어", "zh": "중국어", "de": "독일어",
 }
+
+# Keep layout/behavior fixed; sync visual tokens with ui_pyside THEME.
+BG_COLOR = "#07111f"
+PANEL_COLOR = "#0f1b2b"
+SURFACE_COLOR = "#14273b"
+TEXT_COLOR = "#eef4ff"
+SUBTEXT_COLOR = "#9fb4cc"
+ACCENT_COLOR = "#4fd1ff"
+ACCENT2_COLOR = "#38b5de"
+PAUSE_COLOR = "#c85f76"
+TRACK_COLOR = SURFACE_COLOR
+BORDER_COLOR = "#1f3247"
+
+
+def make_button(master, text, command, bg, fg=BG_COLOR, font=None, width=None, pad_x=18, pad_y=12):
+    return tk.Button(
+        master,
+        text=text,
+        command=command,
+        bg=bg,
+        fg=fg,
+        activebackground=bg,
+        activeforeground=fg,
+        font=font,
+        relief="flat",
+        bd=0,
+        highlightthickness=1,
+        highlightbackground=BORDER_COLOR,
+        padx=pad_x,
+        pady=pad_y,
+        width=width,
+        cursor="hand2",
+    )
 
 def chunk_text(value, width):
     """매우 긴 단어(공백 없는 문자열 등)를 강제로 줄바꿈하기 위해 쪼개는 함수"""
@@ -154,9 +187,9 @@ def update_drag_ui(event):
     time_label.config(text=f"{curr_m}:{curr_s:02d} / {tot_m}:{tot_s:02d}")
 
     canvas.delete("all")
-    canvas.create_rectangle(0, 8, canvas_w, 12, fill="#555555", outline="")
-    canvas.create_rectangle(0, 8, click_x, 12, fill="#ff2f2f", outline="")
-    canvas.create_oval(click_x - 6, 4, click_x + 6, 16, fill="#ff2f2f", outline="")
+    canvas.create_rectangle(0, 8, canvas_w, 12, fill=TRACK_COLOR, outline="")
+    canvas.create_rectangle(0, 8, click_x, 12, fill=ACCENT_COLOR, outline="")
+    canvas.create_oval(click_x - 6, 4, click_x + 6, 16, fill=ACCENT_COLOR, outline="")
 
 # ==========================================
 # 메인 UI 업데이트 함수 (PC로부터 수신한 데이터 기반)
@@ -227,10 +260,10 @@ def update_ui(payload):
 
         canvas_w = max(canvas.winfo_width(), 600)
         canvas.delete("all")
-        canvas.create_rectangle(0, 8, canvas_w, 12, fill="#555555", outline="")
+        canvas.create_rectangle(0, 8, canvas_w, 12, fill=TRACK_COLOR, outline="")
         fill_w = max(0, min(canvas_w, (curr / total) * canvas_w))
-        canvas.create_rectangle(0, 8, fill_w, 12, fill="#ff2f2f", outline="")
-        canvas.create_oval(fill_w - 6, 4, fill_w + 6, 16, fill="#ff2f2f", outline="")
+        canvas.create_rectangle(0, 8, fill_w, 12, fill=ACCENT_COLOR, outline="")
+        canvas.create_oval(fill_w - 6, 4, fill_w + 6, 16, fill=ACCENT_COLOR, outline="")
 
 def receive_loop():
     """백그라운드 스레드에서 무한 루프를 돌며 PC에서 보내는 UDP 패킷(JSON)을 수신합니다."""
@@ -249,41 +282,43 @@ def receive_loop():
 root = tk.Tk()
 root.title("Raspberry Pi Subtitle LCD")
 root.geometry(GEOMETRY)
-root.configure(bg="#151515")
+root.configure(bg=BG_COLOR)
 if FULLSCREEN: root.attributes("-fullscreen", True) # 설정 시 전체화면 적용
 root.bind("<Escape>", lambda _event: root.attributes("-fullscreen", False)) # ESC로 전체화면 해제
 root.bind("q", lambda _event: root.destroy()) # 'q' 키로 빠른 종료
 
+# 안전한 폰트 객체 생성 (공백이 있는 글꼴 이름 처리용)
+import tkinter.font as tkfont
+FONT_30_BOLD = tkfont.Font(root=root, family=FONT_FAMILY, size=30, weight="bold")
+FONT_16_BOLD = tkfont.Font(root=root, family=FONT_FAMILY, size=16, weight="bold")
+FONT_15_BOLD = tkfont.Font(root=root, family=FONT_FAMILY, size=15, weight="bold")
+FONT_14_BOLD = tkfont.Font(root=root, family=FONT_FAMILY, size=14, weight="bold")
+FONT_13_BOLD = tkfont.Font(root=root, family=FONT_FAMILY, size=13, weight="bold")
+FONT_12_BOLD = tkfont.Font(root=root, family=FONT_FAMILY, size=12, weight="bold")
+
 # 1. 언어 선택 버튼 프레임 (상단)
-lang_frame = tk.Frame(root, bg="#222222")
+lang_frame = tk.Frame(root, bg=PANEL_COLOR, bd=0, highlightthickness=1, highlightbackground=BORDER_COLOR)
 lang_frame.pack(fill="x")
 
 for label, code in [("한국어", "ko"), ("영어", "en"), ("일본어", "ja"), ("독일어", "de"), ("원본", "original")]:
-    btn = tk.Button(
-        lang_frame, text=label, command=lambda c=code: send_language(c),
-        bg="#333333", fg="white", activebackground="#444444", activeforeground="white",
-        font=(FONT_FAMILY, 14, "bold"), relief="flat", padx=18, pady=12, width=8,
-    )
+    btn = make_button(lang_frame, text=label, command=lambda c=code: send_language(c), bg=PANEL_COLOR, fg=TEXT_COLOR, font=FONT_14_BOLD, width=8)
     btn.pack(side="left", padx=4, pady=5)
 
 # 종료 버튼 (우측 상단)
-close_btn = tk.Button(
-    lang_frame, text="✕", command=root.destroy, bg="#8b0000", fg="white",
-    font=(FONT_FAMILY, 16, "bold"), relief="flat", padx=12, pady=8, width=3,
-)
+close_btn = make_button(lang_frame, text="✕", command=root.destroy, bg=ACCENT2_COLOR, fg=BG_COLOR, font=FONT_16_BOLD, width=3, pad_x=12, pad_y=8)
 close_btn.pack(side="right", padx=8, pady=5)
 
 # 2. 제목 및 상태 표시 라벨
-title_label = tk.Label(root, text=f"자막 대기 중...", font=(FONT_FAMILY, 13, "bold"), fg="#d8d8d8", bg="#151515")
+title_label = tk.Label(root, text=f"자막 대기 중...", font=FONT_13_BOLD, fg=ACCENT_COLOR, bg=BG_COLOR)
 title_label.pack(fill="x", padx=20, pady=(8, 0))
 
-language_label = tk.Label(root, text="자막: 원본", font=(FONT_FAMILY, 12, "bold"), fg="#91c9ff", bg="#151515")
+language_label = tk.Label(root, text="자막: 원본", font=FONT_12_BOLD, fg=ACCENT_COLOR, bg=BG_COLOR)
 language_label.pack(fill="x", padx=20, pady=(4, 0))
 
 # 3. 실제 자막 텍스트가 표시될 중앙 영역
 lcd_text = tk.Text(
-    root, font=(FONT_FAMILY, 30, "bold"), fg="white", bg="#151515",
-    wrap="word", height=3, bd=0, highlightthickness=0, cursor="ibeam"
+    root, font=FONT_30_BOLD, fg=TEXT_COLOR, bg=PANEL_COLOR,
+    wrap="word", height=3, bd=0, highlightthickness=1, highlightbackground=BORDER_COLOR, insertbackground=TEXT_COLOR, cursor="ibeam"
 )
 lcd_text.tag_configure("center", justify='center')
 lcd_text.insert("1.0", "PC 앱을 시작한 후 영상을 재생하세요.")
@@ -292,21 +327,24 @@ lcd_text.config(state="disabled")
 lcd_text.pack(expand=True, fill="both", padx=20, pady=5)
 
 # 4. 재생/정지/단어저장 등 제어 버튼 프레임 (하단부)
-control_frame = tk.Frame(root, bg="#151515")
+control_frame = tk.Frame(root, bg=BG_COLOR)
 control_frame.pack(fill="x", padx=20, pady=(5, 10))
-
-tk.Button(control_frame, text="재생", bg="#248a3d", fg="white", font=(FONT_FAMILY, 15, "bold"), relief="flat", height=2, padx=20, pady=12, command=send_play).pack(side="left", expand=True, fill="x", padx=(0, 10))
-tk.Button(control_frame, text="정지", bg="#b83232", fg="white", font=(FONT_FAMILY, 15, "bold"), relief="flat", height=2, padx=20, pady=12, command=send_pause).pack(side="left", expand=True, fill="x", padx=(0, 10))
-tk.Button(control_frame, text="단어 저장", bg="#e0a800", fg="black", font=(FONT_FAMILY, 15, "bold"), relief="flat", height=2, padx=20, pady=12, command=send_save_word).pack(side="left", expand=True, fill="x", padx=(0, 0))
+play_btn = make_button(control_frame, text="재생", command=send_play, bg=ACCENT_COLOR, fg=BG_COLOR, font=FONT_15_BOLD)
+play_btn.configure(height=2)
+play_btn.pack(side="left", expand=True, fill="x", padx=(0, 10))
+pause_btn = make_button(control_frame, text="정지", command=send_pause, bg=PAUSE_COLOR, fg=BG_COLOR, font=FONT_15_BOLD)
+pause_btn.configure(height=2)
+pause_btn.pack(side="left", expand=True, fill="x", padx=(0, 10))
+save_btn = make_button(control_frame, text="단어 저장", command=send_save_word, bg=ACCENT2_COLOR, fg=BG_COLOR, font=FONT_15_BOLD)
+save_btn.configure(height=2)
+save_btn.pack(side="left", expand=True, fill="x", padx=(0, 0))
 
 # 5. 시간 및 프로그레스 바(캔버스) 영역 (최하단)
-player_frame = tk.Frame(root, bg="#151515")
+player_frame = tk.Frame(root, bg=BG_COLOR)
 player_frame.pack(side="bottom", fill="x", pady=(5, 18), padx=20)
-
-time_label = tk.Label(player_frame, text="0:00 / 0:00", font=(FONT_FAMILY, 14, "bold"), fg="#aaaaaa", bg="#151515")
+time_label = tk.Label(player_frame, text="0:00 / 0:00", font=FONT_14_BOLD, fg=SUBTEXT_COLOR, bg=BG_COLOR)
 time_label.pack(side="left", padx=(0, 18))
-
-canvas = tk.Canvas(player_frame, height=20, bg="#151515", highlightthickness=0, cursor="hand2")
+canvas = tk.Canvas(player_frame, height=20, bg=BG_COLOR, highlightthickness=0, cursor="hand2")
 canvas.pack(side="left", expand=True, fill="x")
 # 마우스 및 터치 이벤트 바인딩
 canvas.bind("<ButtonPress-1>", on_press)

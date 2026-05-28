@@ -1,3 +1,4 @@
+# YouTube 오디오를 내려받아 ffmpeg로 변환한 뒤 Google Cloud STT로 원문 자막을 추출합니다.
 import yt_dlp
 import os
 import glob

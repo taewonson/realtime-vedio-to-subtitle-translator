@@ -1,8 +1,12 @@
+# Google Cloud Translation API로 STT 자막 세그먼트를 여러 언어로 병렬 번역합니다.
+"""Batch translation pipeline for subtitle segments."""
+
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from google.cloud import translate_v3 as translate
 from google_cloud_auth import get_google_project_id, load_google_credentials
+from language_config import SUBTITLE_TARGET_LANGS
 
 
 # ==========================================
@@ -52,18 +56,13 @@ def translate_subtitles(segments, status_callback=None):
     parent = f"projects/{project_id}/locations/{location}"
 
     # 번역할 대상 언어 코드 매핑 (UI에서 기대하는 키값과 GCP 언어 코드를 맞춤)
-    target_langs = {
-        "ko": "ko",      # 한국어
-        "en": "en",      # 영어
-        "ja": "ja",      # 일본어
-        "zh": "zh-CN",   # 중국어(간체)
-        "de": "de",      # 독일어
-    }
+    target_langs = SUBTITLE_TARGET_LANGS
 
     # 번역 결과를 담을 딕셔너리. 원본 텍스트는 미리 넣어둠
     translated_data = {
         "original": original_texts
     }
+    output_lang_keys = ["original", *target_langs.keys()]
 
     # 한 번의 API 호출에 너무 많은 문장을 보내면 용량 제한에 걸릴 수 있으므로 청크 단위로 분할
     batch_size = int(os.getenv("GCP_TRANSLATE_BATCH_SIZE", "100"))
@@ -118,7 +117,7 @@ def translate_subtitles(segments, status_callback=None):
     for i, segment in enumerate(segments):
         texts_dict = {}
         # 각 언어 키에 대해 i번째 번역 문장을 매핑
-        for lang_key in ["original", "ko", "en", "ja", "zh", "de"]:
+        for lang_key in output_lang_keys:
             # 만약 특정 언어 번역본이 누락되었다면 원본 텍스트를 기본값으로 사용 (방어적 코드)
             texts_dict[lang_key] = translated_data.get(lang_key, original_texts)[i]
 

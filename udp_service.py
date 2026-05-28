@@ -1,7 +1,11 @@
+# PC와 라즈베리파이 LCD 사이의 자막 데이터 전송과 제어 명령 수신을 UDP로 처리합니다.
+"""UDP bridge between the PC subtitle engine and LCD client."""
+
 import socket
 import json
 import threading
 from flask_server import state
+from language_config import get_language_label
 
 class UDPService:
     def __init__(self, pi_ip, pi_port, command_port, get_state_callback, on_save_word_callback):
@@ -64,10 +68,9 @@ class UDPService:
                     state.pending_command = {"command": "pause"}
                 elif msg.startswith("SAVE_WORD:"):
                     word = msg.split(":", 1)[1].strip()
-                    lang_labels = {"original": "원본", "ko": "한국어", "en": "영어", "ja": "일본어", "zh": "중국어", "de": "독일어"}
-                    lang_name = lang_labels.get(self.current_lang, self.current_lang)
-                    
+                    lang_name = get_language_label(self.current_lang)
+
                     if self.on_save_word_callback:
-                        threading.Thread(target=self.on_save_word_callback, args=(word, lang_name), daemon=True).start()
+                        threading.Thread(target=self.on_save_word_callback, args=(word, lang_name, self.current_lang), daemon=True).start()
             except (OSError, UnicodeDecodeError, ValueError):
                 pass

@@ -1,8 +1,9 @@
+# Flask 서버, STT/번역 파이프라인, PC UI를 연결해 전체 자막 번역 시스템을 실행합니다.
 import threading
 from google_cloud_stt import extract_original_subtitles 
 from google_cloud_translator import translate_subtitles 
 from flask_server import run_server, update_subtitles_data, state
-from ui_app import SubtitleUI
+from ui_pyside import SubtitleUI
 
 from dotenv import load_dotenv
 

@@ -1,3 +1,4 @@
+# .env와 서비스 계정 JSON을 읽어 Google Cloud 프로젝트 ID와 인증 객체를 제공합니다.
 import os
 from pathlib import Path
 
@@ -32,7 +33,7 @@ def get_google_project_id() -> str:
     return project_id
 
 
-def get_google_credentials_path() -> Path:
+def get_google_credentials_path(env_name: str = "GCP_CREDENTIALS_FILE") -> Path:
     """
     GCP 서비스 어카운트(Service Account) JSON 키 파일의 경로를 확보하고 보정함.
     상대 경로가 입력되었을 경우, 프로젝트 루트 폴더 기준으로 절대 경로를 만들어 반환함.
@@ -40,11 +41,11 @@ def get_google_credentials_path() -> Path:
     load_google_env()
 
     # .env 파일에 정의된 JSON 키 파일의 경로를 가져옴 (예: credentials/key.json)
-    credentials_file = os.getenv("GCP_CREDENTIALS_FILE")
+    credentials_file = os.getenv(env_name)
 
     if not credentials_file:
         raise RuntimeError(
-            "GCP_CREDENTIALS_FILE is not set. "
+            f"{env_name} is not set. "
             "Add the service account JSON path to your .env file."
         )
 
@@ -59,16 +60,19 @@ def get_google_credentials_path() -> Path:
     return credentials_path
 
 
-def load_google_credentials():
+def load_google_credentials(env_name: str = "GCP_CREDENTIALS_FILE"):
     """
     보정된 경로를 바탕으로 Google Cloud 라이브러리가 사용할 수 있는 인증 객체(Credentials)를 생성함.
     STT 모듈과 번역 모듈이 각각 이 함수를 호출하여 권한을 획득함.
     """
-    credentials_path = get_google_credentials_path()
+    credentials_path = get_google_credentials_path(env_name)
 
     # 파일이 해당 경로에 실제로 존재하는지 최종 검증
     if not credentials_path.exists():
         raise RuntimeError(f"Google service account JSON was not found: {credentials_path}")
 
     # 구글 oauth2 라이브러리를 사용하여 JSON 키 파일로부터 인증 객체를 로드 및 반환
-    return service_account.Credentials.from_service_account_file(credentials_path)
+    credentials = service_account.Credentials.from_service_account_file(credentials_path)
+    if credentials.requires_scopes:
+        credentials = credentials.with_scopes(["https://www.googleapis.com/auth/cloud-platform"])
+    return credentials
