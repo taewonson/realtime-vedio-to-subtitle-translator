@@ -1,110 +1,90 @@
-# 라즈베리파이 LCD 화면에 자막을 표시하고 언어/재생/탐색/단어 저장 명령을 PC로 보냅니다.
+"""라즈베리파이 LCD에서 자막을 표시하는 독립 PySide6 화면입니다."""
+
+from __future__ import annotations
+
 import json
 import os
 import socket
+import sys
 import threading
-import tkinter as tk
-from dotenv import load_dotenv
 
-# 환경변수 로드 (.env 파일에서 IP, 포트, 해상도 등 설정값들을 가져옴)
+from dotenv import load_dotenv
+from PySide6.QtCore import QObject, QPointF, QRectF, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QFont, QPainter, QPalette, QTextBlockFormat, QTextCursor
+from PySide6.QtWidgets import (
+    QApplication,
+    QComboBox,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QMainWindow,
+    QMessageBox,
+    QPushButton,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
+
+from language_config import LCD_LANGUAGE_LABEL_TO_CODE, LCD_LANGUAGE_OPTIONS, get_language_label
+
 load_dotenv()
 
-def env_int(name, default):
-    """환경변수에서 정수형 값을 안전하게 파싱하는 헬퍼 함수"""
+
+def env_int(name: str, default: int) -> int:
     try:
         return int(os.getenv(name, str(default)))
     except (TypeError, ValueError):
         return default
 
+
 # ==========================================
 # 통신 및 UI 기본 설정
 # ==========================================
-# PC(자막 엔진)의 IP 주소 및 포트 정보
 PC_IP = os.getenv("SUBTITLE_PC_IP", "127.0.0.1").strip() or "127.0.0.1"
-MY_PORT = env_int("SUBTITLE_PI_PORT", 5005)           # 파이 측 데이터 수신 포트
-PC_PORT = env_int("SUBTITLE_PC_COMMAND_PORT", 5006)   # PC 측 제어 명령 수신 포트
+MY_PORT = env_int("SUBTITLE_PI_PORT", 5005)
+PC_PORT = env_int("SUBTITLE_PC_COMMAND_PORT", 5006)
 
-# LCD 화면 크기 및 전체화면 모드 설정
 LCD_WIDTH, LCD_HEIGHT = 1024, 600
 GEOMETRY = os.getenv("SUBTITLE_LCD_GEOMETRY", f"{LCD_WIDTH}x{LCD_HEIGHT}").strip() or f"{LCD_WIDTH}x{LCD_HEIGHT}"
 FULLSCREEN = os.getenv("SUBTITLE_LCD_FULLSCREEN", "1").strip().lower() in {"1", "true", "yes", "on"}
 FONT_FAMILY = "Malgun Gothic"
 
-# ==========================================
-# UDP 소켓 초기화 (수신용 / 송신용 분리)
-# ==========================================
-# 데이터를 계속 받아야 하는 수신 소켓
-sock_receive = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-sock_receive.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1) # 포트 충돌 방지
-sock_receive.bind(("0.0.0.0", MY_PORT))
-
-# PC로 제어 명령을 보낼 송신 소켓
-sock_send = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
-# UI 상태 저장을 위한 전역 변수들
-last_total_time = 0.1
-is_dragging = False          # 사용자가 프로그레스바를 드래그 중인지 여부
-last_display_text = ""       # 화면 깜빡임 방지를 위한 이전 텍스트 상태
-last_source_text = ""        
-subtitle_pages = [""]        # 텍스트가 길 경우 페이지 단위로 분할된 데이터
-
-LANG_LABELS = {
-    "original": "원본", "ko": "한국어", "en": "영어", 
-    "ja": "일본어", "zh": "중국어", "de": "독일어",
+THEME = {
+    "bg": "#f8f1e8",
+    "panel": "#fffaf7",
+    "surface": "#e5cfbc",
+    "text": "#5a443a",
+    "muted": "#8d776a",
+    "accent": "#9b6d5b",
+    "accent_alt": "#b8866f",
+    "pause": "#c7a26f",
+    "border": "rgba(181, 160, 147, 0.54)",
 }
 
-# Keep layout/behavior fixed; sync visual tokens with ui_pyside THEME.
-BG_COLOR = "#07111f"
-PANEL_COLOR = "#0f1b2b"
-SURFACE_COLOR = "#14273b"
-TEXT_COLOR = "#eef4ff"
-SUBTEXT_COLOR = "#9fb4cc"
-ACCENT_COLOR = "#4fd1ff"
-ACCENT2_COLOR = "#38b5de"
-PAUSE_COLOR = "#c85f76"
-TRACK_COLOR = SURFACE_COLOR
-BORDER_COLOR = "#1f3247"
+
+def make_font(size: int, bold: bool = False) -> QFont:
+    font = QFont(FONT_FAMILY, size)
+    font.setWeight(QFont.Weight.Bold if bold else QFont.Weight.Medium)
+    return font
 
 
-def make_button(master, text, command, bg, fg=BG_COLOR, font=None, width=None, pad_x=18, pad_y=12):
-    return tk.Button(
-        master,
-        text=text,
-        command=command,
-        bg=bg,
-        fg=fg,
-        activebackground=bg,
-        activeforeground=fg,
-        font=font,
-        relief="flat",
-        bd=0,
-        highlightthickness=1,
-        highlightbackground=BORDER_COLOR,
-        padx=pad_x,
-        pady=pad_y,
-        width=width,
-        cursor="hand2",
-    )
+# 화면 폭을 넘는 긴 단어를 강제로 줄바꿈하기 위한 보조 함수
+def chunk_text(value: str, width: int) -> list[str]:
+    return [value[index : index + width] for index in range(0, len(value), width)]
 
-def chunk_text(value, width):
-    """매우 긴 단어(공백 없는 문자열 등)를 강제로 줄바꿈하기 위해 쪼개는 함수"""
-    return [value[i : i + width] for i in range(0, len(value), width)]
 
-def build_subtitle_pages(text, max_chars_per_line=28):
-    """
-    들어온 자막 텍스트가 너무 길어 LCD 화면을 벗어나지 않도록, 
-    단어 단위로 끊어서 줄을 바꿈하고 (최대 글자 수 기준), 
-    최대 2줄씩 묶어 여러 개의 '페이지'로 만듭니다.
-    """
-    if not isinstance(text, str): return [""]
+# 자막 텍스트를 화면에 맞게 2줄 단위 페이지로 분리
+def build_subtitle_pages(text: str, max_chars_per_line: int = 28) -> list[str]:
+    if not isinstance(text, str):
+        return [""]
     normalized = " ".join(text.strip().split())
-    if not normalized: return [""]
+    if not normalized:
+        return [""]
 
     words = normalized.split(" ")
-    lines = []
+    lines: list[str] = []
     current = ""
-    
-    # 1. 화면 폭에 맞게 단어들을 모아 한 줄(line)씩 생성
+
     for word in words:
         candidate = word if not current else f"{current} {word}"
         if len(candidate) <= max_chars_per_line:
@@ -113,247 +93,476 @@ def build_subtitle_pages(text, max_chars_per_line=28):
         if current:
             lines.append(current)
             current = ""
-        # 단일 단어가 제한 길이를 넘으면 강제로 쪼갬
         if len(word) <= max_chars_per_line:
             current = word
         else:
             lines.extend(chunk_text(word, max_chars_per_line))
 
-    if current: lines.append(current)
+    if current:
+        lines.append(current)
 
-    # 2. 만들어진 줄(lines)을 2줄씩 묶어 하나의 화면(페이지)으로 구성
-    pages = []
+    pages: list[str] = []
     for index in range(0, len(lines), 2):
         first = lines[index]
-        second = lines[index + 1] if (index + 1) < len(lines) else ""
+        second = lines[index + 1] if index + 1 < len(lines) else ""
         pages.append((first + "\n" + second).rstrip())
 
     return pages if pages else [""]
 
-# ==========================================
-# PC로 제어 명령(UDP) 송신 함수들
-# ==========================================
-def send_command(message):
-    try: sock_send.sendto(message.encode("utf-8"), (PC_IP, PC_PORT))
-    except OSError: pass
 
-def send_language(lang_code): send_command(f"SET_LANG:{lang_code}") # 표시 언어 변경 요청
-def send_play(): send_command("CMD:PLAY")                           # 영상 재생 요청
-def send_pause(): send_command("CMD:PAUSE")                         # 영상 일시정지 요청
+class UdpBridge(QObject):
+    payload_received = Signal(object)
 
-# 💡 단어 저장 함수
-def send_save_word():
-    """
-    사용자가 LCD 텍스트 박스에서 마우스(또는 터치)로 드래그한 텍스트를 가져와,
-    PC로 'SAVE_WORD' 명령과 함께 전송합니다. 전송 후 선택 영역은 해제됩니다.
-    """
-    try:
-        selected_text = lcd_text.selection_get().strip()
-        if selected_text:
-            send_command(f"SAVE_WORD:{selected_text}")
-            lcd_text.tag_remove(tk.SEL, "1.0", tk.END)
-    except tk.TclError:
-        pass # 텍스트가 선택되지 않았을 경우 발생하는 에러 무시
 
-# ==========================================
-# 프로그레스 바(재생 막대) 드래그 및 클릭 이벤트 처리
-# ==========================================
-def on_press(event):
-    global is_dragging
-    is_dragging = True
-    update_drag_ui(event)
+class SeekBar(QWidget):
+    seek_requested = Signal(float)
 
-def on_drag(event):
-    if is_dragging: update_drag_ui(event)
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._current = 0.0
+        self._total = 1.0
+        self._preview = 0.0
+        self._dragging = False
+        self.setMinimumHeight(28)
+        self.setMouseTracking(True)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
 
-def on_release(event):
-    """드래그(또는 터치)를 마쳤을 때, 해당 위치의 시간 비율을 계산하여 PC로 탐색(SEEK) 명령 전송"""
-    global is_dragging
-    is_dragging = False
-    canvas_w = canvas.winfo_width()
-    if canvas_w > 0:
-        click_x = max(0, min(event.x, canvas_w))
-        target_time = (click_x / canvas_w) * last_total_time
-        send_command(f"SEEK:{target_time}")
+    # 현재 재생 위치와 전체 길이를 바탕으로 프로그레스 값을 갱신
+    def set_time(self, current: float, total: float) -> None:
+        self._total = max(float(total), 0.1)
+        if not self._dragging:
+            self._current = max(0.0, min(float(current), self._total))
+        self.update()
 
-def update_drag_ui(event):
-    """사용자가 프로그레스 바를 조작 중일 때 실시간으로 막대 UI와 시간 라벨을 업데이트함"""
-    canvas_w = canvas.winfo_width()
-    if canvas_w <= 0: return
-    click_x = max(0, min(event.x, canvas_w))
-    temp_time = (click_x / canvas_w) * last_total_time
-    curr_m, curr_s = divmod(int(temp_time), 60)
-    tot_m, tot_s = divmod(int(last_total_time), 60)
-    time_label.config(text=f"{curr_m}:{curr_s:02d} / {tot_m}:{tot_s:02d}")
+    # 드래그 중에는 미리보기 위치를 우선 사용
+    def _value_for_paint(self) -> float:
+        return self._preview if self._dragging else self._current
 
-    canvas.delete("all")
-    canvas.create_rectangle(0, 8, canvas_w, 12, fill=TRACK_COLOR, outline="")
-    canvas.create_rectangle(0, 8, click_x, 12, fill=ACCENT_COLOR, outline="")
-    canvas.create_oval(click_x - 6, 4, click_x + 6, 16, fill=ACCENT_COLOR, outline="")
+    # 마우스 x 좌표를 시간 값으로 변환
+    def _value_from_pos(self, x: float) -> float:
+        width = max(1, self.width() - 16)
+        ratio = max(0.0, min(1.0, (x - 8.0) / width))
+        return ratio * self._total
 
-# ==========================================
-# 메인 UI 업데이트 함수 (PC로부터 수신한 데이터 기반)
-# ==========================================
-def update_ui(payload):
-    global last_total_time, last_display_text, last_source_text, subtitle_pages
+    # 시간 값을 실제 그릴 x 좌표로 변환
+    def _x_from_value(self, value: float) -> float:
+        width = max(1, self.width() - 16)
+        ratio = 0.0 if self._total <= 0 else max(0.0, min(1.0, value / self._total))
+        return 8.0 + ratio * width
 
-    # 페이로드 데이터 추출 (텍스트, 제목, 진행 시간, 현재 자막의 시작/종료 시간 등)
-    text = payload.get("text", "")
-    overlay_text = payload.get("overlay_text", "")
-    title = payload.get("title", "")
-    lang_code = payload.get("lang", "original")
-    curr = payload.get("curr", 0.0)
-    total = payload.get("total", 0.1)
-    cue_start = payload.get("cue_start")
-    cue_end = payload.get("cue_end")
+    def mousePressEvent(self, event) -> None:  # type: ignore[override]
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._dragging = True
+            self._preview = self._value_from_pos(event.position().x())
+            self.update()
 
-    # 시간 데이터 안전화 처리
-    if not isinstance(curr, (int, float)): curr = 0.0
-    if not isinstance(total, (int, float)) or total <= 0: total = 0.1
-    curr = max(0.0, min(float(curr), float(total)))
-    last_total_time = float(total)
+    def mouseMoveEvent(self, event) -> None:  # type: ignore[override]
+        if self._dragging:
+            self._preview = self._value_from_pos(event.position().x())
+            self.update()
 
-    # 상단 상태 라벨 업데이트
-    if title and isinstance(title, str):
-        title_label.config(text=f"현재 재생: {title}")
-    language_label.config(text=f"자막: {LANG_LABELS.get(lang_code, lang_code)}")
+    def mouseReleaseEvent(self, event) -> None:  # type: ignore[override]
+        if self._dragging and event.button() == Qt.MouseButton.LeftButton:
+            self._preview = self._value_from_pos(event.position().x())
+            self._current = self._preview
+            self._dragging = False
+            self.seek_requested.emit(self._current)
+            self.update()
 
-    # 자막 표시 로직 ("다른 영상 재생 중" 등의 오버레이 텍스트가 우선권 가짐)
-    if isinstance(overlay_text, str) and overlay_text.strip():
-        display_text = overlay_text.strip()
-        subtitle_pages = [""]
-        source_key = "__overlay__"
-    else:
-        # 새로 수신한 원본 텍스트가 이전과 다르면 페이지를 다시 나눔
-        if text != last_source_text:
-            subtitle_pages = build_subtitle_pages(text)
+    def paintEvent(self, _event) -> None:  # type: ignore[override]
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(Qt.PenStyle.NoPen)
 
-        # 현재 자막 구간의 진행도에 따라 긴 자막의 '페이지'를 넘겨줌 (자동 슬라이드 효과)
-        if subtitle_pages:
-            page_count = max(1, len(subtitle_pages))
-            page_index = 0
-            if isinstance(cue_start, (int, float)) and isinstance(cue_end, (int, float)) and cue_end > cue_start:
-                cue_duration = max(0.0, float(cue_end) - float(cue_start))
-                elapsed = max(0.0, min(curr - float(cue_start), cue_duration))
-                per_page = max(cue_duration / page_count, 0.001)
-                page_index = min(int(elapsed // per_page), page_count - 1)
-            display_text = subtitle_pages[page_index]
+        track_rect = QRectF(8.0, self.height() / 2 - 4.0, self.width() - 16.0, 8.0)
+        painter.setBrush(QColor(THEME["surface"]))
+        painter.drawRoundedRect(track_rect, 4.0, 4.0)
+
+        value = self._value_for_paint()
+        fill_x = self._x_from_value(value)
+        fill_rect = QRectF(track_rect.left(), track_rect.top(), max(0.0, fill_x - track_rect.left()), track_rect.height())
+        painter.setBrush(QColor(THEME["accent"]))
+        painter.drawRoundedRect(fill_rect, 4.0, 4.0)
+
+        painter.setBrush(QColor(THEME["accent_alt"] if self._dragging else THEME["accent"]))
+        painter.drawEllipse(QPointF(fill_x, self.height() / 2), 7.0, 7.0)
+
+
+class SubtitleLcdWindow(QMainWindow):
+    def __init__(self) -> None:
+        super().__init__()
+        self.setWindowTitle("Raspberry Pi Subtitle LCD - PySide6")
+        self.resize(LCD_WIDTH, LCD_HEIGHT)
+        self.setMinimumSize(900, 560)
+        self.setStyleSheet(self._build_stylesheet())
+
+        self.last_total_time = 0.1
+        self.last_display_text = ""
+        self.last_source_text = ""
+        self.subtitle_pages = [""]
+
+        self._stop_event = threading.Event()
+        self._bridge = UdpBridge()
+        self._bridge.payload_received.connect(self.update_ui)
+
+        self.sock_receive = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.sock_receive.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.sock_receive.bind(("0.0.0.0", MY_PORT))
+        self.sock_receive.settimeout(0.5)
+
+        self.sock_send = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+        # 위젯 구성과 수신 스레드를 초기화
+        self._build_ui()
+        self._receiver_thread = threading.Thread(target=self.receive_loop, daemon=True)
+        self._receiver_thread.start()
+
+        # 시작 직후 기본 안내 문구를 표시
+        QTimer.singleShot(100, lambda: self.update_ui({"text": "대기 중...", "curr": 0, "total": 1}))
+
+        if FULLSCREEN:
+            self.showFullScreen()
         else:
-            display_text = ""
-        source_key = text
+            self.setGeometry(100, 100, LCD_WIDTH, LCD_HEIGHT)
 
-    # 화면 깜빡임을 최소화하기 위해 텍스트가 실제로 변경되었을 때만 UI 업데이트
-    if source_key != last_source_text or display_text != last_display_text:
-        lcd_text.config(state="normal")
-        lcd_text.delete("1.0", tk.END)
-        lcd_text.insert("1.0", display_text)
-        lcd_text.tag_add("center", "1.0", "end")
-        lcd_text.config(state="disabled") # 드래그 복사는 가능하되 직접 타이핑 수정은 못하도록 막음
-        last_source_text = source_key
-        last_display_text = display_text
+    def _build_stylesheet(self) -> str:
+        return f"""
+        QMainWindow {{
+            background-color: {THEME['bg']};
+        }}
+        QFrame#panelFrame {{
+            background-color: {THEME['panel']};
+            border: 1px solid {THEME['border']};
+            border-radius: 18px;
+        }}
+        QLabel {{
+            color: {THEME['text']};
+        }}
+        QLabel#titleLabel {{
+            color: {THEME['accent']};
+            font-size: 18px;
+            font-weight: 800;
+        }}
+        QLabel#languageLabel {{
+            color: {THEME['accent']};
+            font-size: 16px;
+            font-weight: 800;
+        }}
+        QLabel#timeLabel {{
+            color: {THEME['muted']};
+            font-size: 14px;
+            font-weight: 700;
+        }}
+        QTextEdit {{
+            background-color: {THEME['panel']};
+            color: {THEME['text']};
+            border: 1px solid {THEME['border']};
+            border-radius: 18px;
+            padding: 16px 18px;
+        }}
+        QPushButton {{
+            color: #fffaf7;
+            background-color: {THEME['accent']};
+            border: 1px solid rgba(110, 80, 68, 0.58);
+            border-radius: 14px;
+            padding: 16px 20px;
+            font-weight: 800;
+        }}
+        QPushButton:hover {{
+            background-color: #a97764;
+        }}
+        QPushButton:pressed {{
+            background-color: #7f5a4c;
+        }}
+        QPushButton#closeButton {{
+            background-color: {THEME['accent_alt']};
+        }}
+        QPushButton#closeButton:hover {{
+            background-color: #c7967b;
+        }}
+        QComboBox {{
+            color: {THEME['text']};
+            background-color: rgba(255, 255, 255, 0.88);
+            border: 1px solid rgba(181, 160, 147, 0.7);
+            border-radius: 12px;
+            padding: 8px 12px;
+            font-weight: 700;
+        }}
+        QComboBox::drop-down {{
+            border: none;
+            width: 26px;
+        }}
+        QComboBox QAbstractItemView {{
+            background-color: rgba(255, 250, 245, 0.98);
+            color: {THEME['text']};
+            selection-background-color: rgba(208, 175, 155, 0.55);
+            font-weight: 600;
+        }}
+        """
 
-    # 프로그레스 바(막대) 자동 업데이트 (사용자가 직접 드래그 중이 아닐 때만)
-    if not is_dragging:
-        curr_m, curr_s = divmod(int(curr), 60)
-        tot_m, tot_s = divmod(int(total), 60)
-        time_label.config(text=f"{curr_m}:{curr_s:02d} / {tot_m}:{tot_s:02d}")
+    # 메인 화면의 위젯 배치와 스타일을 구성
+    def _build_ui(self) -> None:
+        central = QWidget(self)
+        self.setCentralWidget(central)
 
-        canvas_w = max(canvas.winfo_width(), 600)
-        canvas.delete("all")
-        canvas.create_rectangle(0, 8, canvas_w, 12, fill=TRACK_COLOR, outline="")
-        fill_w = max(0, min(canvas_w, (curr / total) * canvas_w))
-        canvas.create_rectangle(0, 8, fill_w, 12, fill=ACCENT_COLOR, outline="")
-        canvas.create_oval(fill_w - 6, 4, fill_w + 6, 16, fill=ACCENT_COLOR, outline="")
+        outer = QVBoxLayout(central)
+        outer.setContentsMargins(20, 14, 20, 16)
+        outer.setSpacing(8)
 
-def receive_loop():
-    """백그라운드 스레드에서 무한 루프를 돌며 PC에서 보내는 UDP 패킷(JSON)을 수신합니다."""
-    while True:
+        top_frame = QFrame()
+        top_frame.setObjectName("panelFrame")
+        top_layout = QHBoxLayout(top_frame)
+        top_layout.setContentsMargins(16, 14, 16, 14)
+        top_layout.setSpacing(12)
+
+        self.lang_label = QLabel("언어:")
+        self.lang_label.setFont(make_font(13, True))
+        top_layout.addWidget(self.lang_label)
+
+        self.language_combo = QComboBox()
+        self.language_combo.setFont(make_font(13, True))
+        self.language_combo.addItems([label for label, _ in LCD_LANGUAGE_OPTIONS])
+        self.language_combo.currentTextChanged.connect(self.on_language_selected)
+        top_layout.addWidget(self.language_combo, 0)
+
+        top_layout.addStretch(1)
+
+        self.close_button = QPushButton("종료")
+        self.close_button.setObjectName("closeButton")
+        self.close_button.setFont(make_font(13, True))
+        self.close_button.clicked.connect(self.close)
+        top_layout.addWidget(self.close_button)
+
+        outer.addWidget(top_frame)
+
+        self.title_label = QLabel("자막 대기 중...")
+        self.title_label.setObjectName("titleLabel")
+        self.title_label.setFont(make_font(18, True))
+        outer.addWidget(self.title_label)
+
+        self.language_state_label = QLabel("자막: 원본")
+        self.language_state_label.setObjectName("languageLabel")
+        self.language_state_label.setFont(make_font(17, True))
+        outer.addWidget(self.language_state_label)
+
+        self.subtitle_text = QTextEdit()
+        self.subtitle_text.setFont(make_font(34, True))
+        self.subtitle_text.setReadOnly(True)
+        self.subtitle_text.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.subtitle_text.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse | Qt.TextInteractionFlag.TextSelectableByKeyboard)
+        self._set_centered_subtitle_text("PC 앱을 시작한 후 영상을 재생하세요.")
+        outer.addWidget(self.subtitle_text, 1)
+
+        button_row = QHBoxLayout()
+        button_row.setSpacing(12)
+
+        self.play_button = QPushButton("재생")
+        self.play_button.setFont(make_font(17, True))
+        self.play_button.setMinimumHeight(72)
+        self.play_button.clicked.connect(self.send_play)
+        button_row.addWidget(self.play_button)
+
+        self.pause_button = QPushButton("정지")
+        self.pause_button.setFont(make_font(17, True))
+        self.pause_button.setMinimumHeight(72)
+        self.pause_button.clicked.connect(self.send_pause)
+        self.pause_button.setStyleSheet(f"background-color: {THEME['pause']};")
+        button_row.addWidget(self.pause_button)
+
+        self.save_button = QPushButton("단어 저장")
+        self.save_button.setFont(make_font(17, True))
+        self.save_button.setMinimumHeight(72)
+        self.save_button.clicked.connect(self.send_save_word)
+        self.save_button.setStyleSheet(f"background-color: {THEME['accent_alt']};")
+        button_row.addWidget(self.save_button)
+
+        outer.addLayout(button_row)
+
+        bottom_frame = QFrame()
+        bottom_frame.setObjectName("panelFrame")
+        bottom_layout = QHBoxLayout(bottom_frame)
+        bottom_layout.setContentsMargins(14, 12, 14, 12)
+        bottom_layout.setSpacing(14)
+
+        self.time_label = QLabel("0:00 / 0:00")
+        self.time_label.setObjectName("timeLabel")
+        self.time_label.setFont(make_font(13, True))
+        bottom_layout.addWidget(self.time_label, 0)
+
+        self.seek_bar = SeekBar()
+        self.seek_bar.seek_requested.connect(self.on_seek_requested)
+        bottom_layout.addWidget(self.seek_bar, 1)
+
+        outer.addWidget(bottom_frame)
+
+    # PC로 제어 명령을 전송
+    def send_command(self, message: str) -> None:
         try:
-            data, _ = sock_receive.recvfrom(4096)
-            payload = json.loads(data.decode("utf-8"))
-            # 수신한 데이터를 바탕으로 메인 스레드(UI)에서 update_ui 함수를 실행하도록 위임
-            root.after(0, lambda p=payload: update_ui(p))
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            self.sock_send.sendto(message.encode("utf-8"), (PC_IP, PC_PORT))
+        except OSError:
             pass
 
-# ==========================================
-# Tkinter 창 및 위젯(버튼, 텍스트 상자 등) 배치
-# ==========================================
-root = tk.Tk()
-root.title("Raspberry Pi Subtitle LCD")
-root.geometry(GEOMETRY)
-root.configure(bg=BG_COLOR)
-if FULLSCREEN: root.attributes("-fullscreen", True) # 설정 시 전체화면 적용
-root.bind("<Escape>", lambda _event: root.attributes("-fullscreen", False)) # ESC로 전체화면 해제
-root.bind("q", lambda _event: root.destroy()) # 'q' 키로 빠른 종료
+    # 언어 변경 명령 전송
+    def send_language(self, lang_code: str) -> None:
+        self.send_command(f"SET_LANG:{lang_code}")
 
-# 안전한 폰트 객체 생성 (공백이 있는 글꼴 이름 처리용)
-import tkinter.font as tkfont
-FONT_30_BOLD = tkfont.Font(root=root, family=FONT_FAMILY, size=30, weight="bold")
-FONT_16_BOLD = tkfont.Font(root=root, family=FONT_FAMILY, size=16, weight="bold")
-FONT_15_BOLD = tkfont.Font(root=root, family=FONT_FAMILY, size=15, weight="bold")
-FONT_14_BOLD = tkfont.Font(root=root, family=FONT_FAMILY, size=14, weight="bold")
-FONT_13_BOLD = tkfont.Font(root=root, family=FONT_FAMILY, size=13, weight="bold")
-FONT_12_BOLD = tkfont.Font(root=root, family=FONT_FAMILY, size=12, weight="bold")
+    # 재생 및 일시정지 명령 전송
+    def send_play(self) -> None:
+        self.send_command("CMD:PLAY")
 
-# 1. 언어 선택 버튼 프레임 (상단)
-lang_frame = tk.Frame(root, bg=PANEL_COLOR, bd=0, highlightthickness=1, highlightbackground=BORDER_COLOR)
-lang_frame.pack(fill="x")
+    def send_pause(self) -> None:
+        self.send_command("CMD:PAUSE")
 
-for label, code in [("한국어", "ko"), ("영어", "en"), ("일본어", "ja"), ("독일어", "de"), ("원본", "original")]:
-    btn = make_button(lang_frame, text=label, command=lambda c=code: send_language(c), bg=PANEL_COLOR, fg=TEXT_COLOR, font=FONT_14_BOLD, width=8)
-    btn.pack(side="left", padx=4, pady=5)
+    # 선택된 단어를 PC로 보내 단어장에 저장
+    def send_save_word(self) -> None:
+        selected_text = self.subtitle_text.textCursor().selectedText().replace("\u2029", " ").strip()
+        if not selected_text:
+            QMessageBox.warning(self, "단어 저장", "먼저 드래그로 단어를 선택해 주세요.")
+            return
 
-# 종료 버튼 (우측 상단)
-close_btn = make_button(lang_frame, text="✕", command=root.destroy, bg=ACCENT2_COLOR, fg=BG_COLOR, font=FONT_16_BOLD, width=3, pad_x=12, pad_y=8)
-close_btn.pack(side="right", padx=8, pady=5)
+        result = QMessageBox.question(
+            self,
+            "단어 저장 확인",
+            f"선택한 단어:\n\n{selected_text}\n\n이대로 저장하시겠습니까?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if result == QMessageBox.StandardButton.Yes:
+            self.send_command(f"SAVE_WORD:{selected_text}")
+            cursor = self.subtitle_text.textCursor()
+            cursor.clearSelection()
+            self.subtitle_text.setTextCursor(cursor)
 
-# 2. 제목 및 상태 표시 라벨
-title_label = tk.Label(root, text=f"자막 대기 중...", font=FONT_13_BOLD, fg=ACCENT_COLOR, bg=BG_COLOR)
-title_label.pack(fill="x", padx=20, pady=(8, 0))
+    # 드롭다운에서 선택한 언어를 코드로 변환해 전송
+    def on_language_selected(self, label: str) -> None:
+        self.send_language(LCD_LANGUAGE_LABEL_TO_CODE.get(label, "original"))
 
-language_label = tk.Label(root, text="자막: 원본", font=FONT_12_BOLD, fg=ACCENT_COLOR, bg=BG_COLOR)
-language_label.pack(fill="x", padx=20, pady=(4, 0))
+    # 프로그레스 바 드래그 종료 시 탐색 위치 전송
+    def on_seek_requested(self, target_time: float) -> None:
+        self.send_command(f"SEEK:{target_time}")
 
-# 3. 실제 자막 텍스트가 표시될 중앙 영역
-lcd_text = tk.Text(
-    root, font=FONT_30_BOLD, fg=TEXT_COLOR, bg=PANEL_COLOR,
-    wrap="word", height=3, bd=0, highlightthickness=1, highlightbackground=BORDER_COLOR, insertbackground=TEXT_COLOR, cursor="ibeam"
-)
-lcd_text.tag_configure("center", justify='center')
-lcd_text.insert("1.0", "PC 앱을 시작한 후 영상을 재생하세요.")
-lcd_text.tag_add("center", "1.0", "end")
-lcd_text.config(state="disabled")
-lcd_text.pack(expand=True, fill="both", padx=20, pady=5)
+    # 시간 표시 문자열을 포맷팅
+    def _format_time(self, current: float, total: float) -> str:
+        current_minutes, current_seconds = divmod(int(current), 60)
+        total_minutes, total_seconds = divmod(int(total), 60)
+        return f"{current_minutes}:{current_seconds:02d} / {total_minutes}:{total_seconds:02d}"
 
-# 4. 재생/정지/단어저장 등 제어 버튼 프레임 (하단부)
-control_frame = tk.Frame(root, bg=BG_COLOR)
-control_frame.pack(fill="x", padx=20, pady=(5, 10))
-play_btn = make_button(control_frame, text="재생", command=send_play, bg=ACCENT_COLOR, fg=BG_COLOR, font=FONT_15_BOLD)
-play_btn.configure(height=2)
-play_btn.pack(side="left", expand=True, fill="x", padx=(0, 10))
-pause_btn = make_button(control_frame, text="정지", command=send_pause, bg=PAUSE_COLOR, fg=BG_COLOR, font=FONT_15_BOLD)
-pause_btn.configure(height=2)
-pause_btn.pack(side="left", expand=True, fill="x", padx=(0, 10))
-save_btn = make_button(control_frame, text="단어 저장", command=send_save_word, bg=ACCENT2_COLOR, fg=BG_COLOR, font=FONT_15_BOLD)
-save_btn.configure(height=2)
-save_btn.pack(side="left", expand=True, fill="x", padx=(0, 0))
+    # 자막 본문을 여러 줄에서도 가운데 정렬되도록 블록 단위로 갱신
+    def _set_centered_subtitle_text(self, text: str) -> None:
+        self.subtitle_text.setPlainText(text)
+        cursor = self.subtitle_text.textCursor()
+        cursor.select(QTextCursor.SelectionType.Document)
+        block_format = QTextBlockFormat()
+        block_format.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        cursor.mergeBlockFormat(block_format)
+        cursor.clearSelection()
+        cursor.movePosition(QTextCursor.MoveOperation.Start)
+        self.subtitle_text.setTextCursor(cursor)
 
-# 5. 시간 및 프로그레스 바(캔버스) 영역 (최하단)
-player_frame = tk.Frame(root, bg=BG_COLOR)
-player_frame.pack(side="bottom", fill="x", pady=(5, 18), padx=20)
-time_label = tk.Label(player_frame, text="0:00 / 0:00", font=FONT_14_BOLD, fg=SUBTEXT_COLOR, bg=BG_COLOR)
-time_label.pack(side="left", padx=(0, 18))
-canvas = tk.Canvas(player_frame, height=20, bg=BG_COLOR, highlightthickness=0, cursor="hand2")
-canvas.pack(side="left", expand=True, fill="x")
-# 마우스 및 터치 이벤트 바인딩
-canvas.bind("<ButtonPress-1>", on_press)
-canvas.bind("<B1-Motion>", on_drag)
-canvas.bind("<ButtonRelease-1>", on_release)
+    # 수신한 JSON 페이로드를 바탕으로 화면을 갱신
+    def update_ui(self, payload) -> None:
+        text = payload.get("text", "")
+        overlay_text = payload.get("overlay_text", "")
+        title = payload.get("title", "")
+        lang_code = payload.get("lang", "original")
+        curr = payload.get("curr", 0.0)
+        total = payload.get("total", 0.1)
+        cue_start = payload.get("cue_start")
+        cue_end = payload.get("cue_end")
 
-# 초기 화면을 한 번 그려주고 백그라운드 수신 루프 스레드 시작
-root.after(100, lambda: update_ui({"text": "대기 중...", "curr": 0, "total": 1}))
-threading.Thread(target=receive_loop, daemon=True).start()
+        if not isinstance(curr, (int, float)):
+            curr = 0.0
+        if not isinstance(total, (int, float)) or total <= 0:
+            total = 0.1
 
-# UI 이벤트 메인 루프 진입
-root.mainloop()
+        curr = max(0.0, min(float(curr), float(total)))
+        self.last_total_time = float(total)
+
+        if title and isinstance(title, str):
+            self.title_label.setText(f"현재 재생: {title}")
+
+        self.language_state_label.setText(f"자막: {get_language_label(lang_code)}")
+
+        if isinstance(overlay_text, str) and overlay_text.strip():
+            display_text = overlay_text.strip()
+            self.subtitle_pages = [""]
+            source_key = "__overlay__"
+        else:
+            if text != self.last_source_text:
+                self.subtitle_pages = build_subtitle_pages(text)
+
+            if self.subtitle_pages:
+                page_count = max(1, len(self.subtitle_pages))
+                page_index = 0
+                if isinstance(cue_start, (int, float)) and isinstance(cue_end, (int, float)) and cue_end > cue_start:
+                    cue_duration = max(0.0, float(cue_end) - float(cue_start))
+                    elapsed = max(0.0, min(curr - float(cue_start), cue_duration))
+                    per_page = max(cue_duration / page_count, 0.001)
+                    page_index = min(int(elapsed // per_page), page_count - 1)
+                display_text = self.subtitle_pages[page_index]
+            else:
+                display_text = ""
+            source_key = text
+
+        if source_key != self.last_source_text or display_text != self.last_display_text:
+            self._set_centered_subtitle_text(display_text)
+            self.last_source_text = source_key
+            self.last_display_text = display_text
+
+        if not self.seek_bar._dragging:
+            self.time_label.setText(self._format_time(curr, total))
+            self.seek_bar.set_time(curr, total)
+
+    # 백그라운드에서 UDP 패킷을 수신
+    def receive_loop(self) -> None:
+        while not self._stop_event.is_set():
+            try:
+                data, _ = self.sock_receive.recvfrom(4096)
+            except socket.timeout:
+                continue
+            except OSError:
+                break
+
+            try:
+                payload = json.loads(data.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                continue
+
+            self._bridge.payload_received.emit(payload)
+
+    # 종료 시 소켓과 루프를 정리
+    def closeEvent(self, event) -> None:  # type: ignore[override]
+        self._stop_event.set()
+        try:
+            self.sock_receive.close()
+        except OSError:
+            pass
+        try:
+            self.sock_send.close()
+        except OSError:
+            pass
+        event.accept()
+
+
+    # 애플리케이션을 시작하고 메인 창을 표시
+def main() -> int:
+    app = QApplication.instance() or QApplication(sys.argv)
+    app.setApplicationName("Subtitle LCD")
+
+    palette = QPalette()
+    palette.setColor(QPalette.ColorRole.Window, QColor(THEME["bg"]))
+    palette.setColor(QPalette.ColorRole.WindowText, QColor(THEME["text"]))
+    palette.setColor(QPalette.ColorRole.Base, QColor(THEME["panel"]))
+    palette.setColor(QPalette.ColorRole.Button, QColor(THEME["accent"]))
+    palette.setColor(QPalette.ColorRole.ButtonText, QColor("#fffaf7"))
+    app.setPalette(palette)
+    app.setFont(make_font(12, False))
+
+    window = SubtitleLcdWindow()
+    window.show()
+
+    return app.exec()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

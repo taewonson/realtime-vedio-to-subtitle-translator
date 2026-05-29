@@ -21,6 +21,7 @@ class SharedState:
         self.current_texts = {}
         self.current_time = 0.0
         self.total_time = 0.1
+        self.processing = False
         self.pending_command = None
         self.detected_youtube_url = None
         self.detected_youtube_title = None
@@ -50,6 +51,9 @@ class SharedState:
 # 전역 상태 객체 초기화
 state = SharedState()
 
+# ==========================================
+# 자막 병합 및 타이밍 보정 관련 설정
+# ==========================================
 # 자막 타이밍 병합 및 보정을 위한 설정값들
 MERGE_GAP_SECONDS = 0.35           # 이 시간 내에 인접한 동일 자막은 하나로 병합 (깜빡임 방지)
 GAP_BRIDGE_SECONDS = 0.20          # 자막 사이의 미세한 간격을 메울 시간 (깜빡임 방지)
@@ -59,6 +63,7 @@ MATCH_RECOVERY_THRESHOLD = 2       # 2번 연속 원래 영상으로 감지되�
 SYNC_SENDER_STALE_SECONDS = 2.5    # 이 시간 동안 신호가 없으면 다른 탭(sender)의 신호를 수락함
 
 
+# 현재 화면에 표시되는 자막 상태를 비우는 보조 함수
 def _clear_current_display_state():
     """현재 화면에 표시될 자막 관련 상태를 초기화(화면에서 지움)합니다."""
     state.reset_display()
@@ -94,6 +99,7 @@ def _extract_video_key(url):
     return ""
 
 
+# STT 및 번역 결과를 화면용 타임라인으로 정리
 def _normalize_subtitles(subtitles_data):
     """
     STT 및 번역에서 넘어온 자막 데이터의 시간축을 정규화합니다.
@@ -153,6 +159,9 @@ def _normalize_subtitles(subtitles_data):
 
     return normalized
 
+# ==========================================
+# Flask API 엔드포인트
+# ==========================================
 @app.route('/sync', methods=['POST'])
 def sync_time():
     """
@@ -306,6 +315,7 @@ def update_subtitles_data(subtitles_data, actual_duration=0.1, source_url=""):
     state.reset_sync()
 
 
+# Flask 서버를 백그라운드에서 실행
 def run_server():
     """
     Flask 서버를 5000 포트에서 실행합니다. 

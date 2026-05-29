@@ -7,6 +7,10 @@ import threading
 from flask_server import state
 from language_config import get_language_label
 
+
+# ==========================================
+# LCD 전송 및 명령 수신을 담당하는 UDP 브리지
+# ==========================================
 class UDPService:
     def __init__(self, pi_ip, pi_port, command_port, get_state_callback, on_save_word_callback):
         self.pi_ip = pi_ip
@@ -20,18 +24,20 @@ class UDPService:
         self.sock_recv.bind(("0.0.0.0", self.command_port))
         
         self.current_lang = "original"
-        self.last_sent_payload = ""
 
+    # 제어 명령 수신 루프를 별도 스레드로 시작
     def start_listening(self):
         threading.Thread(target=self._listen_for_commands, daemon=True).start()
 
+    # 현재 공유 상태를 기반으로 LCD로 보낼 JSON payload를 구성
     def send_loop_tick(self):
         current_state = self.get_state_callback()
         current_texts = current_state.get('texts', {})
         playback_mismatch = bool(current_state.get('playback_mismatch'))
+        processing = bool(current_state.get('processing'))
         
         display_text = current_texts[self.current_lang] if not playback_mismatch and current_texts and self.current_lang in current_texts else ""
-        overlay_text = "다른 영상 재생 중" if playback_mismatch else ""
+        overlay_text = "다른 영상 재생 중" if playback_mismatch else ("작업 진행 중..." if processing and not display_text else "")
             
         payload_dict = {
             "text": display_text,
@@ -42,16 +48,16 @@ class UDPService:
             "cue_start": current_state.get('cue_start'),
             "cue_end": current_state.get('cue_end'),
             "overlay_text": overlay_text,
+            "processing": processing,
         }
         payload_str = json.dumps(payload_dict)
         
-        if payload_str != self.last_sent_payload:
-            try:
-                self.sock_send.sendto(payload_str.encode('utf-8'), (self.pi_ip, self.pi_port))
-                self.last_sent_payload = payload_str
-            except OSError:
-                pass
+        try:
+            self.sock_send.sendto(payload_str.encode('utf-8'), (self.pi_ip, self.pi_port))
+        except OSError:
+            pass
 
+    # LCD에서 들어오는 재생/탐색/언어/단어저장 명령을 처리
     def _listen_for_commands(self):
         while True:
             try:

@@ -11,6 +11,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+# ==========================================
+# 안전한 출력 및 서버 실행 보조 함수
+# ==========================================
 def _safe_print(message):
     """
     Windows 터미널 환경에서 백그라운드 스레드 실행 시 발생할 수 있는 
@@ -35,12 +38,17 @@ def _run_server_safe():
         if getattr(e, "winerror", None) != 10048:
             raise
 
+
+# ==========================================
+# 자막 추출 및 번역 백그라운드 작업
+# ==========================================
 def start_background_work(url, status_callback, on_complete_callback):
     """
     자막 추출(STT) 및 번역 작업을 UI 블로킹 없이 백그라운드 스레드에서 실행함.
     """
     def worker():
         try:
+            state.processing = True
             # 1. 새 영상을 처리할 때 이전 영상의 자막이 남아 화면이 깜빡이는 현상을 방지하기 위해 타임라인 초기화
             update_subtitles_data([], 0.1, source_url=url)
             
@@ -59,17 +67,23 @@ def start_background_work(url, status_callback, on_complete_callback):
             update_subtitles_data(subtitles_data, actual_duration, source_url=url)
             
             # 작업 성공 시 콜백 호출하여 UI 원상 복구 및 UDP 전송 루프 시작
+            state.processing = False
             on_complete_callback(success=True)
         except Exception as e:
             # 작업 실패 시 오류 메시지를 출력하고 UI 알림창을 띄우기 위해 False 반환
             error_message = f"오류 발생: {e}"
             _safe_print(f"Error: {error_message}")
             status_callback(error_message, 0)
+            state.processing = False
             on_complete_callback(success=False, message=error_message)
 
     # 데몬 스레드로 지정하여 메인 UI 종료 시 백그라운드 작업도 함께 강제 종료되도록 설정
     threading.Thread(target=worker, daemon=True).start()
 
+
+# ==========================================
+# UI와 UDP 전송에 사용할 현재 상태 조회
+# ==========================================
 def get_current_state():
     """
     PC UI 및 라즈베리파이(LCD)로의 UDP 전송에 필요한 현재 재생 상태 및 자막 데이터를 반환함.
@@ -82,8 +96,13 @@ def get_current_state():
         "cue_start": state.current_cue_start,         # 현재 출력 중인 자막의 시작 시간
         "cue_end": state.current_cue_end,             # 현재 출력 중인 자막의 종료 시간
         "playback_mismatch": state.playback_mismatch, # 타겟 영상과 현재 재생 중인 영상이 다른지 여부
+        "processing": state.processing,               # 자막 추출 및 번역 작업이 진행 중인지 여부
     }
 
+
+# ==========================================
+# 프로그램 시작 지점
+# ==========================================
 if __name__ == '__main__':
     # 자막 추출 작업을 시작하기 전, Chrome 확장 프로그램으로부터 URL을 감지받을 수 있도록 Flask 서버를 먼저 띄움
     threading.Thread(target=_run_server_safe, daemon=True).start()
