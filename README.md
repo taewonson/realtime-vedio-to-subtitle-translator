@@ -34,6 +34,19 @@
 ## 실행 요약
 1. `python -m pip install -r requirements.txt`
 2. `ffmpeg` / `ffprobe` 설치 확인
-3. `.env` 와 `credentials/*.json` 확인
-4. `python main.py`
-5. PC 테스트면 `python fake_pi_lcd.py`, 실제 Pi면 `python pi_lcd.py`
+3. `.env` 와 인증 파일 확인
+4. 필요하면 `python google_cloud_auth.py encrypt <원본.json> <출력.enc> --passphrase <암호>` 로 인증 파일을 암호화
+5. `.env` 에 `GCP_CREDENTIALS_FILE`, `GCP_VOCAB_CREDENTIALS_FILE`, `GCP_CREDENTIALS_PASSPHRASE` 또는 `GCP_VOCAB_PASSPHRASE` 설정
+6. `python main.py`
+7. PC 테스트면 `python fake_pi_lcd.py`, 실제 Pi면 `python pi_lcd.py`
+
+## PyInstaller 배포
+1. `python -m pip install pyinstaller`
+2. 배포용 passphrase를 환경변수 `GCP_CREDENTIALS_PASSPHRASE`, `GCP_VOCAB_PASSPHRASE`에 설정
+3. 포터블 ffmpeg 배포본의 `ffmpeg.exe`, `ffprobe.exe`를 `third_party/ffmpeg/bin` 폴더에 넣기
+4. `powershell -ExecutionPolicy Bypass -File .\build_release.ps1` 실행
+5. 스크립트가 두 개의 `.json.enc` 파일과 ffmpeg bin 폴더를 함께 묶어서 `VocalogSubtitleHub.exe`를 생성함
+6. 배포본에서는 `.enc` 파일과 ffmpeg 실행 파일이 모두 실행 시 임시 추출 영역으로 풀리고, 앱이 그 위치를 자동으로 사용함
+
+주의: `.enc` 파일은 실행할 때마다 새로 만들어지는 임시 파일이 아니라, 배포 전에 한 번 생성해 함께 포함하는 고정 리소스입니다.
+주의: ffmpeg도 실행 시 PATH 설치가 아니라 번들된 `third_party/ffmpeg/bin` 원본을 기준으로 실행되도록 설정했습니다.

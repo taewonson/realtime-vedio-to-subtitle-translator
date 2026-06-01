@@ -1,3 +1,11 @@
 credentials/
 __pycache__/
 *.py[cod]
+.env
+build/
+dist/
+.build_staging/
+*.spec
+*.enc
+*.gcpenc
+third_party/ffmpeg/
