@@ -10,6 +10,7 @@ from typing import List, Tuple
 
 from google.cloud import speech
 from google_cloud_auth import load_google_credentials, load_google_env
+from language_config import get_stt_language_candidates
 
 # ==========================================
 # Google Cloud STT 기반 자막 추출 엔진
@@ -65,6 +66,39 @@ def extract_original_subtitles(youtube_url, status_callback=None) -> Tuple[List[
         lang.strip() for lang in ALT_LANGS_RAW.split(",")
         if lang.strip() and lang.strip() != SOURCE_LANGUAGE
     ]
+    stt_language_candidates = get_stt_language_candidates(SOURCE_LANGUAGE, alternative_languages)
+
+    def _chunk_candidates(language_codes, chunk_size=3):
+        for index in range(0, len(language_codes), chunk_size):
+            yield language_codes[index:index + chunk_size]
+
+    def _recognize_with_language_candidates(audio_content):
+        last_response = None
+        for language_group in _chunk_candidates(stt_language_candidates, 3):
+            if not language_group:
+                continue
+
+            config = speech.RecognitionConfig(
+                encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
+                sample_rate_hertz=SAMPLE_RATE,
+                language_code=language_group[0],
+                alternative_language_codes=language_group[1:],
+                enable_automatic_punctuation=True,  # 자동 구두점(마침표, 쉼표 등) 추가
+                enable_word_time_offsets=True,      # 단어별 시작/종료 시간 추출 활성화
+                model="default",
+            )
+            response = client.recognize(config=config, audio=speech.RecognitionAudio(content=audio_content))
+            last_response = response
+
+            if response.results:
+                has_text = any(
+                    result.alternatives and result.alternatives[0].transcript.strip()
+                    for result in response.results
+                )
+                if has_text:
+                    return response, language_group[0]
+
+        return last_response, stt_language_candidates[0] if stt_language_candidates else SOURCE_LANGUAGE
 
     # 임시 디렉토리 생성 (작업 완료 후 일괄 삭제됨)
     temp_dir = tempfile.mkdtemp(prefix="yt_stt_")
@@ -150,19 +184,9 @@ def extract_original_subtitles(youtube_url, status_callback=None) -> Tuple[List[
             with open(chunk_path, "rb") as audio_file:
                 content = audio_file.read()
 
-            audio = speech.RecognitionAudio(content=content)
-            config = speech.RecognitionConfig(
-                encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
-                sample_rate_hertz=SAMPLE_RATE,
-                language_code=SOURCE_LANGUAGE,
-                alternative_language_codes=alternative_languages,
-                enable_automatic_punctuation=True,  # 자동 구두점(마침표, 쉼표 등) 추가
-                enable_word_time_offsets=True,      # 단어별 시작/종료 시간 추출 활성화
-                model="default",
-            )
-
-            # 동기식 API 호출을 통해 음성 인식 수행
-            response = client.recognize(config=config, audio=audio)
+            # 동기식 API 호출을 통해 언어 후보를 순차적으로 시도하며 음성 인식 수행
+            response, detected_language = _recognize_with_language_candidates(content)
+            _safe_print(f"  - STT 시도 언어: {detected_language}")
 
             # 응답받은 인식 결과를 SimpleSegment 형태로 파싱
             for result in response.results:

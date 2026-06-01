@@ -231,9 +231,9 @@ class SubtitleLcdWindow(QMainWindow):
             background-color: {THEME['bg']};
         }}
         QFrame#panelFrame {{
-            background-color: {THEME['panel']};
-            border: 1px solid {THEME['border']};
-            border-radius: 18px;
+            background-color: rgba(255, 250, 245, 0.94);
+            border: 1px solid rgba(181, 160, 147, 0.72);
+            border-radius: 22px;
         }}
         QLabel {{
             color: {THEME['text']};
@@ -254,11 +254,15 @@ class SubtitleLcdWindow(QMainWindow):
             font-weight: 700;
         }}
         QTextEdit {{
-            background-color: {THEME['panel']};
+            background-color: rgba(255, 255, 255, 0.84);
             color: {THEME['text']};
-            border: 1px solid {THEME['border']};
-            border-radius: 18px;
-            padding: 16px 18px;
+            border: 1px solid rgba(190, 205, 220, 0.85);
+            border-radius: 14px;
+            padding: 10px 12px;
+        }}
+        QTextEdit:focus {{
+            border-color: rgba(233, 187, 172, 0.95);
+            background-color: rgba(255, 255, 255, 0.96);
         }}
         QPushButton {{
             color: #fffaf7;
@@ -270,6 +274,7 @@ class SubtitleLcdWindow(QMainWindow):
         }}
         QPushButton:hover {{
             background-color: #a97764;
+            border-color: rgba(110, 80, 68, 0.76);
         }}
         QPushButton:pressed {{
             background-color: #7f5a4c;
@@ -283,10 +288,14 @@ class SubtitleLcdWindow(QMainWindow):
         QComboBox {{
             color: {THEME['text']};
             background-color: rgba(255, 255, 255, 0.88);
-            border: 1px solid rgba(181, 160, 147, 0.7);
-            border-radius: 12px;
-            padding: 8px 12px;
+            border: 1px solid rgba(190, 205, 220, 0.85);
+            border-radius: 14px;
+            padding: 10px 12px;
             font-weight: 700;
+        }}
+        QComboBox:focus {{
+            border-color: rgba(233, 187, 172, 0.95);
+            background-color: rgba(255, 255, 255, 0.96);
         }}
         QComboBox::drop-down {{
             border: none;
@@ -297,6 +306,18 @@ class SubtitleLcdWindow(QMainWindow):
             color: {THEME['text']};
             selection-background-color: rgba(208, 175, 155, 0.55);
             font-weight: 600;
+        }}
+        QProgressBar {{
+            background-color: rgba(255, 255, 255, 0.72);
+            border: 1px solid rgba(190, 205, 220, 0.80);
+            border-radius: 8px;
+            text-align: center;
+            color: {THEME['text']};
+            height: 18px;
+        }}
+        QProgressBar::chunk {{
+            border-radius: 8px;
+            background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(255, 198, 183, 1), stop:1 rgba(190, 221, 255, 1));
         }}
         """
 

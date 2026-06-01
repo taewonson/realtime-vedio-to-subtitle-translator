@@ -32,14 +32,26 @@ class UDPService:
     # 현재 공유 상태를 기반으로 LCD로 보낼 JSON payload를 구성
     def send_loop_tick(self):
         current_state = self.get_state_callback()
+        payload_dict = self._build_payload(current_state)
+        payload_str = json.dumps(payload_dict)
+        
+        try:
+            self.sock_send.sendto(payload_str.encode('utf-8'), (self.pi_ip, self.pi_port))
+        except OSError:
+            pass
+
+    def _build_payload(self, current_state):
         current_texts = current_state.get('texts', {})
         playback_mismatch = bool(current_state.get('playback_mismatch'))
         processing = bool(current_state.get('processing'))
-        
-        display_text = current_texts[self.current_lang] if not playback_mismatch and current_texts and self.current_lang in current_texts else ""
+
+        display_text = ""
+        if not playback_mismatch:
+            display_text = current_texts.get(self.current_lang, "") if isinstance(current_texts, dict) else ""
+
         overlay_text = "다른 영상 재생 중" if playback_mismatch else ("작업 진행 중..." if processing and not display_text else "")
-            
-        payload_dict = {
+
+        return {
             "text": display_text,
             "curr": current_state.get('curr', 0.0),
             "total": current_state.get('total', 0.1),
@@ -50,12 +62,6 @@ class UDPService:
             "overlay_text": overlay_text,
             "processing": processing,
         }
-        payload_str = json.dumps(payload_dict)
-        
-        try:
-            self.sock_send.sendto(payload_str.encode('utf-8'), (self.pi_ip, self.pi_port))
-        except OSError:
-            pass
 
     # LCD에서 들어오는 재생/탐색/언어/단어저장 명령을 처리
     def _listen_for_commands(self):
@@ -64,16 +70,18 @@ class UDPService:
                 data, _ = self.sock_recv.recvfrom(1024)
                 msg = data.decode('utf-8')
 
-                if msg.startswith("SET_LANG:"):
-                    self.current_lang = msg.split(":")[1]
-                elif msg.startswith("SEEK:"):
-                    state.pending_command = {"command": "seek", "time": float(msg.split(":")[1])}
+                command, separator, value = msg.partition(":")
+
+                if command == "SET_LANG" and separator:
+                    self.current_lang = value
+                elif command == "SEEK" and separator:
+                    state.pending_command = {"command": "seek", "time": float(value)}
                 elif msg == "CMD:PLAY":
                     state.pending_command = {"command": "play"}
                 elif msg == "CMD:PAUSE":
                     state.pending_command = {"command": "pause"}
-                elif msg.startswith("SAVE_WORD:"):
-                    word = msg.split(":", 1)[1].strip()
+                elif command == "SAVE_WORD" and separator:
+                    word = value.strip()
                     lang_name = get_language_label(self.current_lang)
 
                     if self.on_save_word_callback:

@@ -41,7 +41,7 @@ from udp_service import UDPService
 
 load_dotenv()
 
-# Minimal, consistent theme used by the rewritten UI
+# 재작성된 UI에서 사용하는 통일 테마
 THEME = {
     "bg": "#f8f1e8",
     "bg_alt": "#fcf8f3",
@@ -81,6 +81,16 @@ class _DetectionBridge(QObject):
     detected = Signal(str, str)
 
 
+class _MainWindow(QMainWindow):
+    def __init__(self, app: QApplication):
+        super().__init__()
+        self._app = app
+
+    def closeEvent(self, event) -> None:  # type: ignore[override]
+        self._app.quit()
+        event.accept()
+
+
 def _env_int(name: str, default: int) -> int:
     try:
         return int(os.getenv(name, str(default)))
@@ -88,12 +98,80 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
-class SubtitleUI:
-    """Rewritten PySide UI that preserves app functionality.
+class _FramelessTitleBar(QFrame):
+    def __init__(self, window: QWidget, title: str):
+        super().__init__(window)
+        self._window = window
+        self._dragging = False
+        self._drag_offset = None
+        self.setObjectName("windowTitleBar")
+        self.setFixedHeight(54)
 
-    - Keeps DB and UDP behavior from original code.
-    - Implements: login/signup, URL detect, start processing, vocab window, TTS play.
-    - Uses a softer pastel visual style with lightweight motion.
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(16, 10, 16, 10)
+        layout.setSpacing(8)
+
+        self.title_label = QLabel(title)
+        self.title_label.setObjectName("windowTitleLabel")
+        self.title_label.setFont(FONTS["section"])
+        layout.addWidget(self.title_label)
+        layout.addStretch(1)
+
+        self.minimize_button = self._make_control_button("─", self._window.showMinimized)
+        self.maximize_button = self._make_control_button("⛶", self._toggle_maximize)
+        self.close_button = self._make_control_button("✕", self._window.close, danger=True)
+
+        layout.addWidget(self.minimize_button)
+        layout.addWidget(self.maximize_button)
+        layout.addWidget(self.close_button)
+
+    def _make_control_button(self, text: str, slot, danger: bool = False) -> QPushButton:
+        button = QPushButton(text)
+        button.setObjectName("windowControlButtonDanger" if danger else "windowControlButton")
+        button.setFixedSize(34, 28)
+        button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        button.clicked.connect(slot)
+        return button
+
+    def _toggle_maximize(self) -> None:
+        if self._window.isFullScreen() or self._window.isMaximized():
+            self._window.showNormal()
+            self.maximize_button.setText("⛶")
+        else:
+            self._window.showFullScreen()
+            self.maximize_button.setText("❐")
+
+    def mousePressEvent(self, event) -> None:  # type: ignore[override]
+        if event.button() == Qt.MouseButton.LeftButton:
+            window_handle = self._window.windowHandle()
+            if window_handle is not None and window_handle.startSystemMove():
+                event.accept()
+                return
+            event.ignore()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:  # type: ignore[override]
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:  # type: ignore[override]
+        self._dragging = False
+        self._drag_offset = None
+        super().mouseReleaseEvent(event)
+
+    def mouseDoubleClickEvent(self, event) -> None:  # type: ignore[override]
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._toggle_maximize()
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
+
+
+class SubtitleUI:
+    """기존 기능을 유지하면서 다시 구성한 PySide UI입니다.
+
+    DB/UDP 동작, 로그인·회원가입, URL 감지, 자막 추출 시작, 단어장, TTS 재생을
+    모두 유지하고, 시각 스타일만 더 부드러운 파스텔 톤으로 정리합니다.
     """
 
     def __init__(self, on_start_callback, get_state_callback):
@@ -126,14 +204,16 @@ class SubtitleUI:
 
         # QApplication과 테마를 먼저 준비한 뒤 메인 창을 구성한다.
         self.app = QApplication.instance() or QApplication(sys.argv)
+        self.app.setQuitOnLastWindowClosed(False)
         self._apply_theme()
         self.app.setFont(FONTS["body"])
 
-        self.main_window = QMainWindow()
+        self.main_window = _MainWindow(self.app)
+        self.main_window.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.FramelessWindowHint)
         self.main_window.setWindowTitle("Vocalog Subtitle Hub")
         self.main_window.resize(1160, 730)
 
-        # widgets
+        # 메인 화면에서 재사용할 위젯 참조를 미리 보관한다.
         self.detected_url_edit: QLineEdit | None = None
         self.detected_title_label: QLabel | None = None
         self.url_edit: QLineEdit | None = None
@@ -149,7 +229,7 @@ class SubtitleUI:
 
         threading.Thread(target=self.poll_detected_url, daemon=True).start()
 
-        # UDP periodic sender
+        # UDP 송신 루프를 짧은 주기로 유지한다.
         self.udp_timer = QTimer(self.main_window)
         self.udp_timer.setInterval(100)
         self.udp_timer.timeout.connect(self.udp.send_loop_tick)
@@ -170,6 +250,21 @@ class SubtitleUI:
             QWidget#appShell {{
                 color: {THEME['text']};
                 background-color: {THEME['bg']};
+            }}
+            QFrame#windowShell {{
+                background-color: rgba(255, 250, 245, 0.98);
+                border: 1px solid rgba(181, 160, 147, 0.72);
+                border-radius: 22px;
+            }}
+            QFrame#windowTitleBar {{
+                background-color: rgba(255, 250, 245, 0.92);
+                border: none;
+                border-radius: 16px;
+            }}
+            QLabel#windowTitleLabel {{
+                color: {THEME['accent']};
+                font-size: 20px;
+                font-weight: 700;
             }}
             QFrame#glassCard, QFrame#heroCard, QFrame#statusCard {{
                 background-color: rgba(255, 252, 248, 0.88);
@@ -248,6 +343,38 @@ class SubtitleUI:
             }}
             QPushButton#secondaryButton:hover {{
                 background-color: #b98a74;
+            }}
+            QPushButton#windowControlButton, QPushButton#windowControlButtonDanger {{
+                background-color: rgba(255, 255, 255, 0.9);
+                color: {THEME['text']};
+                border: 1px solid rgba(181, 160, 147, 0.48);
+                border-radius: 9px;
+                padding: 0px;
+                font-size: 18px;
+                font-weight: 700;
+            }}
+            QPushButton#windowControlButton:hover {{
+                background-color: rgba(240, 231, 225, 0.95);
+            }}
+            QPushButton#windowControlButtonDanger:hover {{
+                background-color: rgba(245, 214, 212, 0.95);
+                color: #8c4038;
+            }}
+            QTableWidget QScrollBar:vertical {{
+                background: rgba(255, 245, 239, 0.88);
+                width: 14px;
+                margin: 2px;
+                border-radius: 7px;
+            }}
+            QTableWidget QScrollBar::handle:vertical {{
+                background: rgba(189, 152, 133, 0.72);
+                min-height: 28px;
+                border-radius: 6px;
+            }}
+            QTableWidget QScrollBar::add-line:vertical, QTableWidget QScrollBar::sub-line:vertical {{
+                height: 0px;
+                background: transparent;
+                border: none;
             }}
             QLineEdit, QTextEdit, QComboBox {{
                 color: {THEME['text']};
@@ -341,6 +468,19 @@ class SubtitleUI:
         self._intro_animations.append(animation)
         animation.start(QPropertyAnimation.DeletionPolicy.DeleteWhenStopped)
 
+    def _attach_window_chrome(self, window: QWidget, layout: QVBoxLayout, title: str) -> None:
+        title_bar = _FramelessTitleBar(window, title)
+        layout.insertWidget(0, title_bar)
+
+    def _make_window_shell(self, parent: QWidget) -> tuple[QFrame, QVBoxLayout]:
+        shell = QFrame(parent)
+        shell.setObjectName("windowShell")
+        shell.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        shell_layout = QVBoxLayout(shell)
+        shell_layout.setContentsMargins(2, 2, 2, 2)
+        shell_layout.setSpacing(0)
+        return shell, shell_layout
+
     def _make_card(self, object_name: str, title_text: str, hint_text: str | None = None) -> tuple[QFrame, QVBoxLayout]:
         frame = QFrame()
         frame.setObjectName(object_name)
@@ -369,8 +509,12 @@ class SubtitleUI:
         self.main_window.setCentralWidget(central)
 
         root_layout = QVBoxLayout(central)
-        root_layout.setContentsMargins(12, 8, 12, 8)
+        root_layout.setContentsMargins(10, 10, 10, 10)
         root_layout.setSpacing(0)
+
+        shell, shell_layout = self._make_window_shell(central)
+        root_layout.addWidget(shell)
+        self._attach_window_chrome(self.main_window, shell_layout, "Vocalog Subtitle Hub")
 
         content = QWidget()
         content_layout = QHBoxLayout(content)
@@ -383,7 +527,7 @@ class SubtitleUI:
         detect_layout.setSpacing(24)
         self.detected_title_label = QLabel("제목 감지 대기 중...")
         self.detected_title_label.setFont(FONTS["section"])
-        # Allow titles to wrap across multiple lines; small vertical growth allowed
+        # 제목은 여러 줄로 감싸고, 세로 크기는 최소한만 늘린다.
         self.detected_title_label.setWordWrap(True)
         self.detected_title_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.detected_title_label.setMaximumHeight(140)
@@ -444,11 +588,11 @@ class SubtitleUI:
 
         self.current_title_label = QLabel("제목: -")
         self.current_url_label = QLabel("URL: -")
-        # Allow current status lines to wrap with modest vertical growth
+        # 현재 상태 문구는 감싸되, 카드 높이가 과하게 늘어나지 않게 한다.
         self.current_title_label.setWordWrap(True)
         self.current_title_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.current_title_label.setMaximumHeight(80)
-        # Keep URL as single-line and elide long URLs to avoid tall wrapping
+        # URL은 한 줄로 유지하고 긴 문자열은 가운데를 생략한다.
         self.current_url_label.setWordWrap(False)
         self.current_url_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.current_url_label.setMaximumHeight(40)
@@ -462,26 +606,31 @@ class SubtitleUI:
         right_panel.addWidget(status_card)
         content_layout.addWidget(detect_card, 6)
         content_layout.addLayout(right_panel, 4)
-        # Maintain stable width proportions between detection and status panels
+        # 감지 패널과 상태 패널의 폭 비율을 안정적으로 유지한다.
         content_layout.setStretch(0, 6)
         content_layout.setStretch(1, 4)
-        root_layout.addStretch(1)
-        root_layout.addWidget(content)
-        root_layout.addStretch(1)
+        shell_layout.addWidget(content)
 
         self._animate_widget_fade_in(detect_card, 40)
         self._animate_widget_fade_in(status_card, 180)
 
-    # Dialogs
+    # 다이얼로그
     def show_login_dialog(self) -> None:
         # 초기 진입 시 로그인 또는 회원가입을 선택하도록 한다.
-        dialog = QDialog(self.main_window)
+        dialog = QDialog(None)
+        dialog.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.FramelessWindowHint)
         dialog.setWindowTitle("로그인")
         layout = QVBoxLayout(dialog)
-        layout.setSpacing(10)
-        layout.setContentsMargins(16, 16, 16, 16)
-        dialog.setMinimumSize(560, 360)
-        dialog.resize(600, 400)
+        layout.setSpacing(0)
+        layout.setContentsMargins(10, 10, 10, 10)
+        dialog.setMinimumSize(640, 420)
+        dialog.resize(680, 460)
+
+        shell, shell_layout = self._make_window_shell(dialog)
+        layout.addWidget(shell)
+        shell_layout.setContentsMargins(12, 12, 12, 12)
+        shell_layout.setSpacing(10)
+        self._attach_window_chrome(dialog, shell_layout, "로그인")
 
         header_row = QHBoxLayout()
         monitor_icon = QLabel("📺")
@@ -502,18 +651,18 @@ class SubtitleUI:
         header_row.addWidget(monitor_icon)
         header_row.addWidget(title)
         header_row.addWidget(icon)
-        layout.addLayout(header_row)
+        shell_layout.addLayout(header_row)
 
         id_edit = QLineEdit()
         id_edit.setPlaceholderText("ID")
         id_edit.setMinimumHeight(46)
-        layout.addWidget(id_edit)
+        shell_layout.addWidget(id_edit)
 
         pw_edit = QLineEdit()
         pw_edit.setEchoMode(QLineEdit.EchoMode.Password)
         pw_edit.setPlaceholderText("Password")
         pw_edit.setMinimumHeight(46)
-        layout.addWidget(pw_edit)
+        shell_layout.addWidget(pw_edit)
 
         btn_row = QHBoxLayout()
         login_btn = QPushButton("로그인")
@@ -524,7 +673,7 @@ class SubtitleUI:
         signup_btn.setMinimumHeight(46)
         btn_row.addWidget(login_btn)
         btn_row.addWidget(signup_btn)
-        layout.addLayout(btn_row)
+        shell_layout.addLayout(btn_row)
 
         def attempt_login():
             user_id = id_edit.text().strip()
@@ -570,10 +719,20 @@ class SubtitleUI:
             QMessageBox.critical(dialog, "오류", msg)
 
     def show_signup_dialog(self, parent: QDialog | QWidget) -> None:
-        dialog = QDialog(parent)
+        dialog = QDialog(None)
+        dialog.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.FramelessWindowHint)
         dialog.setWindowTitle("회원가입")
         layout = QVBoxLayout(dialog)
-        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(0)
+        layout.setContentsMargins(10, 10, 10, 10)
+        dialog.setMinimumSize(600, 360)
+        dialog.resize(640, 400)
+
+        shell, shell_layout = self._make_window_shell(dialog)
+        layout.addWidget(shell)
+        shell_layout.setContentsMargins(12, 12, 12, 12)
+        shell_layout.setSpacing(10)
+        self._attach_window_chrome(dialog, shell_layout, "회원가입")
 
         id_edit = QLineEdit()
         pw_edit = QLineEdit()
@@ -583,11 +742,11 @@ class SubtitleUI:
         email_edit.setPlaceholderText("Email")
         for w in (id_edit, pw_edit, email_edit):
             w.setMinimumHeight(40)
-            layout.addWidget(w)
+            shell_layout.addWidget(w)
 
         btn = QPushButton("가입 완료")
         btn.clicked.connect(lambda: process_signup())
-        layout.addWidget(btn)
+        shell_layout.addWidget(btn)
 
         def process_signup():
             user_id = id_edit.text().strip()
@@ -613,12 +772,20 @@ class SubtitleUI:
             QMessageBox.critical(self.main_window, "오류", "로그인 상태가 아니거나 DB가 없습니다.")
             return
 
-        dialog = QDialog(self.main_window)
+        dialog = QDialog(None)
+        dialog.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.FramelessWindowHint)
         dialog.setWindowTitle(f"내 단어장 - {self.logged_in_user}")
         layout = QVBoxLayout(dialog)
-        layout.setContentsMargins(12, 12, 12, 12)
-        dialog.resize(820, 580)
-        dialog.setMinimumSize(780, 540)
+        layout.setSpacing(0)
+        layout.setContentsMargins(10, 10, 10, 10)
+        dialog.resize(620, 620)
+        dialog.setMinimumSize(580, 560)
+
+        shell, shell_layout = self._make_window_shell(dialog)
+        layout.addWidget(shell)
+        shell_layout.setContentsMargins(12, 12, 12, 12)
+        shell_layout.setSpacing(8)
+        self._attach_window_chrome(dialog, shell_layout, f"내 단어장 - {self.logged_in_user}")
 
         btn_row = QHBoxLayout()
         delete_btn = QPushButton("선택 삭제")
@@ -626,12 +793,12 @@ class SubtitleUI:
         btn_row.addWidget(delete_btn)
         btn_row.addWidget(delete_all_btn)
         btn_row.addStretch(1)
-        layout.addLayout(btn_row)
+        shell_layout.addLayout(btn_row)
 
         guide_label = QLabel("단어를 더블클릭하면 상세 화면으로 이동합니다. 번역, 음성 듣기, 메모는 상세 화면에서 확인해 주세요.")
         guide_label.setWordWrap(True)
         guide_label.setFont(FONTS["body"])
-        layout.addWidget(guide_label)
+        shell_layout.addWidget(guide_label)
 
         table = QTableWidget(0, 1)
         table.setHorizontalHeaderLabels(["저장된 단어"])
@@ -639,10 +806,11 @@ class SubtitleUI:
         table.setAlternatingRowColors(True)
         table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        table.setMinimumHeight(420)
+        table.setMinimumHeight(300)
         table.setFont(FONTS["body"])
         table.verticalHeader().setDefaultSectionSize(46)
-        layout.addWidget(table)
+        table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        shell_layout.addWidget(table)
 
         vocab_cache: Dict[str, Dict[str, Any]] = {}
 
@@ -719,18 +887,25 @@ class SubtitleUI:
         dialog.exec()
 
     def show_detail_dialog(self, parent: QDialog | QWidget, data: Dict[str, Any], doc_id: str) -> None:
-        dialog = QDialog(parent)
+        dialog = QDialog(None)
+        dialog.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.FramelessWindowHint)
         dialog.setWindowTitle(f"단어 상세 - {data.get('word', '')}")
         layout = QVBoxLayout(dialog)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(10)
-        dialog.resize(1000, 660)
-        dialog.setMinimumSize(940, 600)
+        layout.setSpacing(0)
+        layout.setContentsMargins(10, 10, 10, 10)
+        dialog.resize(840, 640)
+        dialog.setMinimumSize(780, 600)
+
+        shell, shell_layout = self._make_window_shell(dialog)
+        layout.addWidget(shell)
+        shell_layout.setContentsMargins(12, 12, 12, 12)
+        shell_layout.setSpacing(10)
+        self._attach_window_chrome(dialog, shell_layout, f"단어 상세 - {data.get('word', '')}")
 
         word_label = QLabel(data.get("word", ""))
         word_label.setObjectName("detailWord")
         word_label.setFont(FONTS["hero"])
-        layout.addWidget(word_label)
+        shell_layout.addWidget(word_label)
 
         meta = QLabel(f"저장 언어: {get_language_label(data.get('lang_code') or data.get('lang', '알 수 없음'))}")
         meta.setFont(FONTS["section"])
@@ -754,12 +929,22 @@ class SubtitleUI:
         left_panel.addWidget(original_box)
 
         play_btn = QPushButton("원문 발음 듣기")
-        play_btn.setMinimumHeight(44)
+        play_btn.setMinimumHeight(50)
+        play_btn.setMinimumWidth(220)
+        play_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        detail_button_font = QFont("Malgun Gothic", 15)
+        detail_button_font.setWeight(QFont.Weight.DemiBold)
+        play_btn.setFont(detail_button_font)
+        play_btn.setStyleSheet("padding: 10px 18px 11px 18px;")
         play_btn.clicked.connect(lambda: self._play_tts(data.get("word", ""), data.get("lang_code") or "original", dialog))
         left_panel.addWidget(play_btn)
 
         translated_play_btn = QPushButton("번역 발음 듣기")
-        translated_play_btn.setMinimumHeight(44)
+        translated_play_btn.setMinimumHeight(50)
+        translated_play_btn.setMinimumWidth(220)
+        translated_play_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        translated_play_btn.setFont(detail_button_font)
+        translated_play_btn.setStyleSheet("padding: 10px 18px 11px 18px;")
 
         translate_row = QHBoxLayout()
         translate_combo = QComboBox()
@@ -768,8 +953,10 @@ class SubtitleUI:
         translate_combo.setMinimumWidth(170)
         translate_combo.setMinimumContentsLength(10)
         trans_btn = QPushButton("번역")
-        trans_btn.setMinimumHeight(42)
-        trans_btn.setMinimumWidth(82)
+        trans_btn.setMinimumHeight(48)
+        trans_btn.setMinimumWidth(96)
+        trans_btn.setFont(detail_button_font)
+        trans_btn.setStyleSheet("padding: 8px 16px 9px 16px;")
         translate_row.addWidget(translate_combo, 0)
         translate_row.addWidget(trans_btn, 0)
 
@@ -786,11 +973,11 @@ class SubtitleUI:
         header_row.addWidget(meta)
         header_row.addStretch(1)
         header_row.addLayout(translate_row)
-        layout.addLayout(header_row)
+        shell_layout.addLayout(header_row)
 
         body.addLayout(left_panel, 1, 0)
         body.addLayout(right_panel, 1, 1)
-        layout.addLayout(body)
+        shell_layout.addLayout(body)
 
         def play_translated_pronunciation():
             translated_text = translation_out.toPlainText().strip()
@@ -804,19 +991,22 @@ class SubtitleUI:
 
         memo_label = QLabel("메모")
         memo_label.setFont(FONTS["section"])
-        layout.addWidget(memo_label)
+        shell_layout.addWidget(memo_label)
 
         memo = QTextEdit()
         memo.setText(data.get("note", ""))
-        memo.setMinimumHeight(120)
-        layout.addWidget(memo)
+        memo.setMinimumHeight(140)
+        shell_layout.addWidget(memo)
 
         footer = QHBoxLayout()
         footer.addStretch(1)
         save_btn = QPushButton("메모 저장")
-        save_btn.setMinimumHeight(42)
+        save_btn.setMinimumHeight(46)
+        save_btn.setMinimumWidth(140)
+        save_btn.setFont(detail_button_font)
+        save_btn.setStyleSheet("padding: 8px 18px 9px 18px;")
         footer.addWidget(save_btn)
-        layout.addLayout(footer)
+        shell_layout.addLayout(footer)
 
         save_btn.clicked.connect(lambda: self._save_note(doc_id, memo.toPlainText(), dialog))
 
@@ -885,7 +1075,7 @@ class SubtitleUI:
         if title and title != self.last_detected_title:
             self.last_detected_title = title
             if self.detected_title_label is not None:
-                # Show full title with wrapping (tooltip still available)
+                # 제목은 툴팁과 함께 전체를 보여 주도록 감싼다.
                 self.detected_title_label.setText(title)
                 self.detected_title_label.setToolTip(title)
             if self.current_title_label is not None:
@@ -897,7 +1087,7 @@ class SubtitleUI:
             if self.detected_url_edit is not None:
                 self.detected_url_edit.setText(url)
             if self.current_url_label is not None:
-                # Elide long URLs to a single line (middle elide) and keep full URL in tooltip
+                # URL은 가운데를 생략한 한 줄 표시로 바꾸고 전체 주소는 툴팁에 둔다.
                 try:
                     fm = QFontMetrics(self.current_url_label.font())
                     max_w = self.current_url_label.width() or int(self.main_window.width() * 0.35)
