@@ -200,6 +200,7 @@ class SubtitleLcdWindow(QMainWindow):
         self.resize(LCD_WIDTH, LCD_HEIGHT)
         self.setMinimumSize(900, 560)
         self.setStyleSheet(self._build_stylesheet())
+        self._windowed_geometry = self.saveGeometry()
 
         self.last_total_time = 0.1
         self.last_display_text = ""
@@ -230,6 +231,8 @@ class SubtitleLcdWindow(QMainWindow):
             self.showFullScreen()
         else:
             self.setGeometry(100, 100, LCD_WIDTH, LCD_HEIGHT)
+
+        self._update_fullscreen_button()
 
     def _build_stylesheet(self) -> str:
         return f"""
@@ -354,11 +357,28 @@ class SubtitleLcdWindow(QMainWindow):
 
         self.pc_ip_label = QLabel("PC IP:")
         self.pc_ip_label.setFont(make_font(13, True))
+        self.pc_ip_label.setStyleSheet(f"color: {THEME['accent']};")
         top_layout.addWidget(self.pc_ip_label)
 
         self.pc_ip_edit = QLineEdit(self.pc_ip)
         self.pc_ip_edit.setMaximumWidth(260)
         self.pc_ip_edit.setMinimumHeight(36)
+        self.pc_ip_edit.setStyleSheet(
+            f"""
+            QLineEdit {{
+                color: {THEME['text']};
+                background-color: rgba(255, 255, 255, 0.88);
+                border: 1px solid rgba(190, 205, 220, 0.85);
+                border-radius: 14px;
+                padding: 8px 12px;
+                font-weight: 700;
+            }}
+            QLineEdit:focus {{
+                border-color: rgba(233, 187, 172, 0.95);
+                background-color: rgba(255, 255, 255, 0.96);
+            }}
+            """
+        )
         top_layout.addWidget(self.pc_ip_edit)
 
         set_ip_btn = QPushButton("설정")
@@ -367,6 +387,11 @@ class SubtitleLcdWindow(QMainWindow):
         top_layout.addWidget(set_ip_btn)
 
         top_layout.addStretch(1)
+
+        self.fullscreen_button = QPushButton("전체화면 끄기")
+        self.fullscreen_button.setMinimumHeight(36)
+        self.fullscreen_button.clicked.connect(self._toggle_fullscreen)
+        top_layout.addWidget(self.fullscreen_button)
 
         self.close_button = QPushButton("종료")
         self.close_button.setObjectName("closeButton")
@@ -500,6 +525,22 @@ class SubtitleLcdWindow(QMainWindow):
             QMessageBox.information(self, "설정 완료", f"PC IP를 {ip}로 설정했습니다.")
         except Exception as exc:
             QMessageBox.critical(self, "오류", f"IP 설정 중 오류가 발생했습니다: {exc}")
+
+    def _update_fullscreen_button(self) -> None:
+        self.fullscreen_button.setText("전체화면 끄기" if self.isFullScreen() else "전체화면 켜기")
+
+    def _toggle_fullscreen(self) -> None:
+        if self.isFullScreen():
+            self.showNormal()
+            if not self._windowed_geometry.isEmpty():
+                self.restoreGeometry(self._windowed_geometry)
+            else:
+                self.setGeometry(100, 100, LCD_WIDTH, LCD_HEIGHT)
+        else:
+            self._windowed_geometry = self.saveGeometry()
+            self.showFullScreen()
+
+        self._update_fullscreen_button()
 
     # 시간 표시 문자열을 포맷팅
     def _format_time(self, current: float, total: float) -> str:
