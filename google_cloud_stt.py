@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import List, Tuple
 
 from google.cloud import speech
-from google_cloud_auth import load_google_credentials, load_google_env
+from google_cloud_auth import load_google_credentials, load_google_env, resolve_bundled_tool_path
 from language_config import get_stt_language_candidates
 
 # ==========================================
@@ -41,6 +41,14 @@ def _safe_print(message):
         print(str(message).encode("ascii", errors="replace").decode("ascii"))
 
 
+def _ffmpeg_executable() -> str:
+    return str(resolve_bundled_tool_path("ffmpeg.exe"))
+
+
+def _ffprobe_executable() -> str:
+    return str(resolve_bundled_tool_path("ffprobe.exe"))
+
+
 def extract_original_subtitles(youtube_url, status_callback=None) -> Tuple[List[SimpleSegment], float]:
     """
     유튜브 URL을 받아 오디오를 다운로드하고, Google Cloud STT를 통해
@@ -60,6 +68,7 @@ def extract_original_subtitles(youtube_url, status_callback=None) -> Tuple[List[
     ALT_LANGS_RAW = os.getenv("GCP_STT_ALTERNATIVE_LANGUAGES", "ko-KR")
     CHUNK_SECONDS = int(os.getenv("GCP_STT_CHUNK_SECONDS", "50"))  # 한 번에 처리할 최대 길이 (60초 미만 권장)
     SAMPLE_RATE = 16000
+
 
     # 대체 인식 언어 목록 생성 (기본 언어 제외)
     alternative_languages = [
@@ -130,7 +139,7 @@ def extract_original_subtitles(youtube_url, status_callback=None) -> Tuple[List[
         # 다운로드한 오디오를 Google STT가 선호하는 형식(Mono, 16kHz, WAV)으로 ffmpeg를 이용해 변환
         subprocess.run(
             [
-                "ffmpeg", "-y",
+                    _ffmpeg_executable(), "-y",
                 "-i", original_audio,
                 "-ac", "1",
                 "-ar", str(SAMPLE_RATE),
@@ -166,7 +175,7 @@ def extract_original_subtitles(youtube_url, status_callback=None) -> Tuple[List[
             # ffmpeg로 현재 루프에 해당하는 시간만큼 오디오 잘라내기
             subprocess.run(
                 [
-                    "ffmpeg", "-y",
+                    _ffmpeg_executable(), "-y",
                     "-ss", str(start_sec),
                     "-t", str(chunk_duration),
                     "-i", wav_audio,
@@ -247,7 +256,7 @@ def _get_audio_duration(file_path: str) -> float:
     """
     result = subprocess.run(
         [
-            "ffprobe",
+            _ffprobe_executable(),
             "-v", "error",
             "-show_entries", "format=duration",
             "-of", "default=noprint_wrappers=1:nokey=1",

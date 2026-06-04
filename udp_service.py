@@ -88,3 +88,9 @@ class UDPService:
                         threading.Thread(target=self.on_save_word_callback, args=(word, lang_name, self.current_lang), daemon=True).start()
             except (OSError, UnicodeDecodeError, ValueError):
                 pass
+
+    def set_pi_ip(self, pi_ip: str) -> None:
+        """런타임에 라즈베리파이로 전송할 대상 IP를 변경합니다."""
+        if not isinstance(pi_ip, str):
+            return
+        self.pi_ip = pi_ip.strip()

@@ -516,6 +516,30 @@ class SubtitleUI:
         root_layout.addWidget(shell)
         self._attach_window_chrome(self.main_window, shell_layout, "Vocalog Subtitle Hub")
 
+        # 상단 영역: LCD IP 설정 전용 행을 타이틀 아래에 둬서 감지/상태 카드 비율에 영향 주지 않음
+        top_frame = QFrame()
+        top_frame.setObjectName("topControlFrame")
+        top_layout = QHBoxLayout(top_frame)
+        top_layout.setContentsMargins(12, 8, 12, 8)
+        top_layout.setSpacing(8)
+
+        ip_label = QLabel("LCD IP:")
+        ip_label.setFont(FONTS["body"])
+        top_layout.addWidget(ip_label)
+
+        self.pi_ip_edit = QLineEdit(self.udp.pi_ip)
+        self.pi_ip_edit.setMaximumWidth(260)
+        self.pi_ip_edit.setMinimumHeight(36)
+        top_layout.addWidget(self.pi_ip_edit)
+
+        set_ip_btn = QPushButton("설정")
+        set_ip_btn.setMinimumHeight(36)
+        set_ip_btn.clicked.connect(self._set_pi_ip)
+        top_layout.addWidget(set_ip_btn)
+
+        top_layout.addStretch(1)
+        shell_layout.addWidget(top_frame)
+
         content = QWidget()
         content_layout = QHBoxLayout(content)
         content_layout.setSpacing(14)
@@ -885,6 +909,17 @@ class SubtitleUI:
 
         load_data()
         dialog.exec()
+
+    def _set_pi_ip(self) -> None:
+        ip = self.pi_ip_edit.text().strip()
+        if not ip:
+            QMessageBox.warning(self.main_window, "오류", "IP를 입력하세요.")
+            return
+        try:
+            self.udp.set_pi_ip(ip)
+            QMessageBox.information(self.main_window, "설정 완료", f"LCD IP를 {ip}로 설정했습니다.")
+        except Exception as exc:
+            QMessageBox.critical(self.main_window, "오류", f"IP 설정 중 오류가 발생했습니다: {exc}")
 
     def show_detail_dialog(self, parent: QDialog | QWidget, data: Dict[str, Any], doc_id: str) -> None:
         dialog = QDialog(None)

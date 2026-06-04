@@ -354,10 +354,17 @@ class SubtitleLcdWindow(QMainWindow):
 
         outer.addWidget(top_frame)
 
-        self.title_label = QLabel(f"자막 대기 중...  PC: {PC_IP}  UDP: {MY_PORT}")
-        self.title_label.setObjectName("titleLabel")
-        self.title_label.setFont(make_font(18, True))
-        outer.addWidget(self.title_label)
+        self.ip_label = QLabel(f"임시 지정된 IP: {PC_IP}")
+        self.ip_label.setObjectName("ipLabel")
+        self.ip_label.setFont(make_font(13, True))
+        self.ip_label.setStyleSheet(f"color: {THEME['accent']};")
+        outer.addWidget(self.ip_label)
+
+        self.playback_title_label = QLabel("자막 대기 중...")
+        self.playback_title_label.setObjectName("titleLabel")
+        self.playback_title_label.setFont(make_font(18, True))
+        self.playback_title_label.setStyleSheet(f"color: {THEME['accent']};")
+        outer.addWidget(self.playback_title_label)
 
         self.language_state_label = QLabel("자막: 원본")
         self.language_state_label.setObjectName("languageLabel")
@@ -498,7 +505,7 @@ class SubtitleLcdWindow(QMainWindow):
         self.last_total_time = float(total)
 
         if title and isinstance(title, str):
-            self.title_label.setText(f"현재 재생: {title}")
+            self.playback_title_label.setText(f"현재 재생: {title}")
 
         self.language_state_label.setText(f"자막: {get_language_label(lang_code)}")
 

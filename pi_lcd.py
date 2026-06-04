@@ -37,6 +37,21 @@ def env_int(name: str, default: int) -> int:
         return default
 
 
+def get_local_ip() -> str:
+    """시스템의 현재 IP 주소(외부로 나가는 인터페이스)를 추정합니다."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        try:
+            return socket.gethostbyname(socket.gethostname())
+        except Exception:
+            return "127.0.0.1"
+
+
 # ==========================================
 # 통신 및 UI 기본 설정
 # ==========================================
@@ -356,10 +371,17 @@ class SubtitleLcdWindow(QMainWindow):
 
         outer.addWidget(top_frame)
 
-        self.title_label = QLabel("자막 대기 중...")
-        self.title_label.setObjectName("titleLabel")
-        self.title_label.setFont(make_font(18, True))
-        outer.addWidget(self.title_label)
+        self.ip_label = QLabel(f"현재 IP: {get_local_ip()}")
+        self.ip_label.setObjectName("ipLabel")
+        self.ip_label.setFont(make_font(13, True))
+        self.ip_label.setStyleSheet(f"color: {THEME['accent']};")
+        outer.addWidget(self.ip_label)
+
+        self.playback_title_label = QLabel("자막 대기 중...")
+        self.playback_title_label.setObjectName("titleLabel")
+        self.playback_title_label.setFont(make_font(18, True))
+        self.playback_title_label.setStyleSheet(f"color: {THEME['accent']};")
+        outer.addWidget(self.playback_title_label)
 
         self.language_state_label = QLabel("자막: 원본")
         self.language_state_label.setObjectName("languageLabel")
@@ -500,7 +522,7 @@ class SubtitleLcdWindow(QMainWindow):
         self.last_total_time = float(total)
 
         if title and isinstance(title, str):
-            self.title_label.setText(f"현재 재생: {title}")
+            self.playback_title_label.setText(f"현재 재생: {title}")
 
         self.language_state_label.setText(f"자막: {get_language_label(lang_code)}")
 

@@ -11,8 +11,7 @@ import hashlib
 import datetime
 import html
 from google.cloud import firestore, translate_v3 as translate
-from google.oauth2 import service_account
-from google_cloud_auth import get_google_project_id, load_google_credentials
+from google_cloud_auth import get_google_project_id, load_google_credentials, load_google_credentials_from_path
 
 class DBService:
     """
@@ -39,7 +38,11 @@ class DBService:
                 print(f"⚠️ JSON 키 파일이 없습니다: {key_path}")
                 return
 
-            self.gcp_credentials = service_account.Credentials.from_service_account_file(key_path)
+            self.gcp_credentials = load_google_credentials_from_path(
+                key_path,
+                passphrase_env_name="GCP_VOCAB_PASSPHRASE",
+                fallback_passphrase_env_name="GCP_CREDENTIALS_PASSPHRASE",
+            )
             self.gcp_project_id = self.gcp_credentials.project_id
             self.db_client = firestore.Client(
                 project=self.gcp_project_id,
