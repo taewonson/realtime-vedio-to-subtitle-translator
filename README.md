@@ -50,10 +50,11 @@
 6. 배포본에서는 `.enc` 파일과 ffmpeg 실행 파일이 모두 실행 시 임시 추출 영역으로 풀리고, 앱이 그 위치를 자동으로 사용함
 
 ## Raspberry Pi 배포
-1. Raspberry Pi에서 `chmod +x setup_pi.sh`를 한 번만 실행
-2. `./setup_pi.sh`를 실행하면 시스템 패키지 설치, 가상환경 생성, `requirements.txt` 설치, PyInstaller 설치, `pi_lcd.py` 패키징까지 한 번에 진행됨
-3. 결과물은 `dist_pi/VocalogPiSubtitleLCD`에 생성됨
-4. 이후에는 생성된 실행 파일만 바로 실행하면 됨
+1. Raspberry Pi 배포 폴더에는 `setup_pi.sh`, `pi_lcd.py`, `language_config.py`만 넣으면 됨
+2. Raspberry Pi에서 `chmod +x setup_pi.sh`를 한 번만 실행
+3. `./setup_pi.sh`를 실행하면 시스템 패키지 설치, 가상환경 생성, PySide6 설치, PyInstaller 설치, `pi_lcd.py` 패키징까지 한 번에 진행됨
+4. 결과물은 `dist_pi/VocalogPiSubtitleLCD`에 생성됨
+5. 이후에는 생성된 실행 파일만 바로 실행하면 됨
 
 주의: `.enc` 파일은 실행할 때마다 새로 만들어지는 임시 파일이 아니라, 배포 전에 한 번 생성해 함께 포함하는 고정 리소스입니다.
 주의: ffmpeg도 실행 시 PATH 설치가 아니라 번들된 `third_party/ffmpeg/bin` 원본을 기준으로 실행되도록 설정했습니다.

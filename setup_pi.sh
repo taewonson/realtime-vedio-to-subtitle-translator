@@ -10,6 +10,7 @@ PYTHON_BIN="python3"
 APP_NAME="VocalogPiSubtitleLCD"
 BUILD_DIR="$ROOT_DIR/build_pi"
 DIST_DIR="$ROOT_DIR/dist_pi"
+PYTHON_DEPS=(PySide6)
 
 install_system_packages() {
     if command -v apt-get >/dev/null 2>&1; then
@@ -26,7 +27,7 @@ create_venv() {
 
 install_python_packages() {
     "$VENV_DIR/bin/python" -m pip install --upgrade pip
-    "$VENV_DIR/bin/python" -m pip install -r requirements.txt
+    "$VENV_DIR/bin/python" -m pip install "${PYTHON_DEPS[@]}"
 }
 
 build_executable() {
@@ -50,7 +51,6 @@ fi
 install_system_packages
 create_venv
 install_python_packages
-
 "$VENV_DIR/bin/python" -m pip install pyinstaller
 build_executable
 
