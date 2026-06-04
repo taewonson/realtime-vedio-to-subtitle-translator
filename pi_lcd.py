@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 import json
-import os
 import socket
 import sys
 import threading
 
-from dotenv import load_dotenv
 from PySide6.QtCore import QObject, QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPalette, QTextBlockFormat, QTextCursor
 from PySide6.QtWidgets import (
@@ -19,6 +17,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QMessageBox,
+    QLineEdit,
     QPushButton,
     QTextEdit,
     QVBoxLayout,
@@ -26,15 +25,6 @@ from PySide6.QtWidgets import (
 )
 
 from language_config import LCD_LANGUAGE_LABEL_TO_CODE, LCD_LANGUAGE_OPTIONS, get_language_label
-
-load_dotenv()
-
-
-def env_int(name: str, default: int) -> int:
-    try:
-        return int(os.getenv(name, str(default)))
-    except (TypeError, ValueError):
-        return default
 
 
 def get_local_ip() -> str:
@@ -55,13 +45,13 @@ def get_local_ip() -> str:
 # ==========================================
 # 통신 및 UI 기본 설정
 # ==========================================
-PC_IP = os.getenv("SUBTITLE_PC_IP", "127.0.0.1").strip() or "127.0.0.1"
-MY_PORT = env_int("SUBTITLE_PI_PORT", 5005)
-PC_PORT = env_int("SUBTITLE_PC_COMMAND_PORT", 5006)
+DEFAULT_PC_IP = "127.0.0.1"
+MY_PORT = 5005
+PC_PORT = 5006
 
 LCD_WIDTH, LCD_HEIGHT = 1024, 600
-GEOMETRY = os.getenv("SUBTITLE_LCD_GEOMETRY", f"{LCD_WIDTH}x{LCD_HEIGHT}").strip() or f"{LCD_WIDTH}x{LCD_HEIGHT}"
-FULLSCREEN = os.getenv("SUBTITLE_LCD_FULLSCREEN", "1").strip().lower() in {"1", "true", "yes", "on"}
+GEOMETRY = f"{LCD_WIDTH}x{LCD_HEIGHT}"
+FULLSCREEN = True
 FONT_FAMILY = "Malgun Gothic"
 
 THEME = {
@@ -215,6 +205,7 @@ class SubtitleLcdWindow(QMainWindow):
         self.last_display_text = ""
         self.last_source_text = ""
         self.subtitle_pages = [""]
+        self.pc_ip = DEFAULT_PC_IP
 
         self._stop_event = threading.Event()
         self._bridge = UdpBridge()
@@ -361,6 +352,20 @@ class SubtitleLcdWindow(QMainWindow):
         self.language_combo.currentTextChanged.connect(self.on_language_selected)
         top_layout.addWidget(self.language_combo, 0)
 
+        self.pc_ip_label = QLabel("PC IP:")
+        self.pc_ip_label.setFont(make_font(13, True))
+        top_layout.addWidget(self.pc_ip_label)
+
+        self.pc_ip_edit = QLineEdit(self.pc_ip)
+        self.pc_ip_edit.setMaximumWidth(260)
+        self.pc_ip_edit.setMinimumHeight(36)
+        top_layout.addWidget(self.pc_ip_edit)
+
+        set_ip_btn = QPushButton("설정")
+        set_ip_btn.setMinimumHeight(36)
+        set_ip_btn.clicked.connect(self._set_pc_ip)
+        top_layout.addWidget(set_ip_btn)
+
         top_layout.addStretch(1)
 
         self.close_button = QPushButton("종료")
@@ -441,7 +446,7 @@ class SubtitleLcdWindow(QMainWindow):
     # PC로 제어 명령을 전송
     def send_command(self, message: str) -> None:
         try:
-            self.sock_send.sendto(message.encode("utf-8"), (PC_IP, PC_PORT))
+            self.sock_send.sendto(message.encode("utf-8"), (self.pc_ip, PC_PORT))
         except OSError:
             pass
 
@@ -483,6 +488,18 @@ class SubtitleLcdWindow(QMainWindow):
     # 프로그레스 바 드래그 종료 시 탐색 위치 전송
     def on_seek_requested(self, target_time: float) -> None:
         self.send_command(f"SEEK:{target_time}")
+
+    def _set_pc_ip(self) -> None:
+        ip = self.pc_ip_edit.text().strip()
+        if not ip:
+            QMessageBox.warning(self, "오류", "PC IP를 입력하세요.")
+            return
+
+        try:
+            self.pc_ip = ip
+            QMessageBox.information(self, "설정 완료", f"PC IP를 {ip}로 설정했습니다.")
+        except Exception as exc:
+            QMessageBox.critical(self, "오류", f"IP 설정 중 오류가 발생했습니다: {exc}")
 
     # 시간 표시 문자열을 포맷팅
     def _format_time(self, current: float, total: float) -> str:

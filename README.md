@@ -39,6 +39,7 @@
 5. `.env` 에 `GCP_CREDENTIALS_FILE`, `GCP_VOCAB_CREDENTIALS_FILE`, `GCP_CREDENTIALS_PASSPHRASE` 또는 `GCP_VOCAB_PASSPHRASE` 설정
 6. `python main.py`
 7. PC 테스트면 `python fake_pi_lcd.py`, 실제 Pi면 `python pi_lcd.py`
+8. LCD 창 상단의 `PC IP` 입력칸에 대상 PC 주소를 넣고 `설정`을 누르면 `.env`를 수정하지 않고도 전송 대상을 바꿀 수 있음
 
 ## PyInstaller 배포
 1. `python -m pip install pyinstaller`
@@ -47,6 +48,12 @@
 4. `powershell -ExecutionPolicy Bypass -File .\build_release.ps1` 실행
 5. 스크립트가 두 개의 `.json.enc` 파일과 ffmpeg bin 폴더를 함께 묶어서 `VocalogSubtitleHub.exe`를 생성함
 6. 배포본에서는 `.enc` 파일과 ffmpeg 실행 파일이 모두 실행 시 임시 추출 영역으로 풀리고, 앱이 그 위치를 자동으로 사용함
+
+## Raspberry Pi 배포
+1. Raspberry Pi에서 `chmod +x setup_pi.sh`를 한 번만 실행
+2. `./setup_pi.sh`를 실행하면 시스템 패키지 설치, 가상환경 생성, `requirements.txt` 설치, PyInstaller 설치, `pi_lcd.py` 패키징까지 한 번에 진행됨
+3. 결과물은 `dist_pi/VocalogPiSubtitleLCD`에 생성됨
+4. 이후에는 생성된 실행 파일만 바로 실행하면 됨
 
 주의: `.enc` 파일은 실행할 때마다 새로 만들어지는 임시 파일이 아니라, 배포 전에 한 번 생성해 함께 포함하는 고정 리소스입니다.
 주의: ffmpeg도 실행 시 PATH 설치가 아니라 번들된 `third_party/ffmpeg/bin` 원본을 기준으로 실행되도록 설정했습니다.
